@@ -197,11 +197,11 @@ export async function createUserAccount({ email, password, profile }) {
   const id = randomUUID();
   const passwordHash = await hashPassword(password);
   const nextProfile = {
-    name: profile?.name || "Brian Jien",
-    program: profile?.program || "MCS @ UIUC",
-    graduation: profile?.graduation || "Dec 2027",
-    visa: profile?.visa || "F-1 Visa",
-    avatar: profile?.avatar || "/assets/profile-presets/avatar-campus.png",
+    name: profile?.name || "Candidate",
+    program: profile?.program || "Career Profile",
+    graduation: profile?.graduation || "2026-2027 cycle",
+    visa: profile?.visa || "Internship + New Grad",
+    avatar: profile?.avatar || "/assets/profile-presets/avatar-portrait.png",
   };
 
   await getPool().execute("INSERT INTO users (id, email, password_hash, profile_json) VALUES (?, ?, ?, ?)", [

@@ -25,8 +25,8 @@
 - Fonts and typography: system sans stack matches the reference's modern SaaS tone; hierarchy, weights, line height, and truncation are readable across dashboard cards, nav, rail, and detail panel. Letter spacing remains 0.
 - Spacing and layout rhythm: the implementation follows the source's left navigation, compact topbar, KPI row, five-column board, right rail, and bottom detail panel. Kanban columns use internal vertical scrolling so the detail panel is visible in the first desktop viewport.
 - Colors and visual tokens: green is the primary theme, balanced with neutral surfaces plus blue, purple, and amber semantic accents for stages and deadlines. Contrast and selected states are readable.
-- Image quality and asset fidelity: the UIUC MCS app mark is a generated raster asset placed in the sidebar/profile areas. Company icons use icon-library assets, not custom CSS art.
-- Copy and content: dashboard copy is adapted for a UIUC MCS student graduating Dec 2027 and targeting 2026 Fall / 2027 internships. Pipeline, tasks, documents, and contacts now start empty and grow only from live imports or user-created records.
+- Image quality and asset fidelity: the app mark and profile presets are neutral career-tracker assets placed in the sidebar/profile areas. Company icons use icon-library assets, not custom CSS art.
+- Copy and content: dashboard copy is neutral and avoids personal or institution-specific identifiers. Pipeline, tasks, documents, and contacts start empty and grow only from live imports or user-created records.
 
 **Patches Made Since Previous QA Pass**
 - Moved the detail panel into the main board column so it appears beneath the Kanban board while the right rail continues alongside it.

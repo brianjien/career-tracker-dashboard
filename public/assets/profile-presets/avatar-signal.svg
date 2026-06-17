@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 320" role="img" aria-label="Signal profile image">
+  <defs>
+    <linearGradient id="bg" x1="0" x2="1" y1="0" y2="1">
+      <stop offset="0" stop-color="#0a3325"/>
+      <stop offset="1" stop-color="#0f7f4a"/>
+    </linearGradient>
+  </defs>
+  <rect width="320" height="320" rx="56" fill="url(#bg)"/>
+  <rect x="60" y="72" width="200" height="176" rx="28" fill="#eaf8ef" opacity=".94"/>
+  <path d="M96 207h128" stroke="#0f7f4a" stroke-width="14" stroke-linecap="round"/>
+  <path d="M96 166h96" stroke="#0f7f4a" stroke-width="14" stroke-linecap="round" opacity=".82"/>
+  <path d="M96 125h132" stroke="#0f7f4a" stroke-width="14" stroke-linecap="round" opacity=".64"/>
+  <circle cx="236" cy="84" r="30" fill="#8ce9b2"/>
+  <path d="m225 84 8 8 18-22" fill="none" stroke="#083626" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

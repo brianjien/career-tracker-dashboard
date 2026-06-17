@@ -189,7 +189,7 @@ function parseSimplifyMarkdown(markdown, source) {
 async function fetchText(url) {
   const response = await fetch(url, {
     headers: {
-      "User-Agent": "UIUC-MCS-Internship-Tracker/1.0",
+      "User-Agent": "Career-Tracker-Dashboard/1.0",
       Accept: "text/plain, text/html, application/json",
     },
   });
@@ -200,7 +200,7 @@ async function fetchText(url) {
 async function fetchJson(url) {
   const response = await fetch(url, {
     headers: {
-      "User-Agent": "UIUC-MCS-Internship-Tracker/1.0",
+      "User-Agent": "Career-Tracker-Dashboard/1.0",
       Accept: "application/json",
     },
   });

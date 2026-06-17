@@ -1,7 +1,7 @@
 kind: wasmer.io/App.v0
 owner: brianjien
-name: uiuc-mcs-internship-tracker
-package: brianjien/uiuc-mcs-internship-tracker
+name: career-tracker-dashboard
+package: brianjien/career-tracker-dashboard
 debug: true
 locality:
   regions:

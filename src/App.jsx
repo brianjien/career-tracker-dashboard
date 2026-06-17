@@ -61,8 +61,8 @@ import {
 } from "react-icons/si";
 import { FaAmazon, FaMicrosoft } from "react-icons/fa";
 
-const STORAGE_KEY = "uiuc-mcs-internship-tracker-live-v2";
-const AUTH_TOKEN_KEY = "uiuc-mcs-internship-auth-token-v1";
+const STORAGE_KEY = "career-tracker-workspace-v1";
+const AUTH_TOKEN_KEY = "career-tracker-auth-token-v1";
 
 const stages = [
   {
@@ -70,7 +70,7 @@ const stages = [
     label: "Saved",
     accent: "green",
     icon: Bookmark,
-    empty: "Save roles that fit MCS + Dec 2027 timing.",
+    empty: "Save roles that fit your target cycle.",
   },
   {
     id: "applied",
@@ -134,16 +134,16 @@ const companyIcons = {
 
 const resourceLinks = [
   { title: "Zero to Offer", type: "Guide", source: "Pitt CSC", url: "https://pittcs.wiki/guides/zero-to-offer" },
-  { title: "UIUC Grainger Career Services", type: "Career", source: "UIUC", url: "https://ecs.grainger.illinois.edu/" },
+  { title: "Tech Interview Handbook", type: "Prep", source: "Yangshun Tay", url: "https://www.techinterviewhandbook.org/" },
   { title: "Simplify Summer 2026 List", type: "Jobs", source: "SimplifyJobs", url: "https://github.com/SimplifyJobs/Summer2026-Internships" },
-  { title: "Off-Season Internships", type: "Jobs", source: "SimplifyJobs", url: "https://github.com/SimplifyJobs/Summer2026-Internships/blob/dev/README-Off-Season.md" },
+  { title: "New Grad Positions", type: "Jobs", source: "SimplifyJobs", url: "https://github.com/SimplifyJobs/New-Grad-Positions" },
 ];
 
 const profilePresets = [
-  { id: "campus", label: "Campus", src: "/assets/profile-presets/avatar-campus.png" },
   { id: "portrait", label: "Portrait", src: "/assets/profile-presets/avatar-portrait.png" },
   { id: "workspace", label: "Workspace", src: "/assets/profile-presets/avatar-workspace.png" },
-  { id: "badge", label: "Badge", src: "/assets/profile-presets/avatar-badge.png" },
+  { id: "abstract", label: "Abstract", src: "/assets/profile-presets/avatar-abstract.svg" },
+  { id: "signal", label: "Signal", src: "/assets/profile-presets/avatar-signal.svg" },
 ];
 
 const emptyStoredData = {
@@ -158,10 +158,10 @@ const blankGoal = { target: "", deadline: "", label: "" };
 
 function defaultProfile(overrides = {}) {
   return {
-    name: "Brian Jien",
-    program: "MCS @ UIUC",
-    graduation: "Dec 2027",
-    visa: "F-1 Visa",
+    name: "Candidate",
+    program: "Career Profile",
+    graduation: "2026-2027 cycle",
+    visa: "Internship + New Grad",
     avatar: profilePresets[0].src,
     ...overrides,
   };
@@ -169,7 +169,7 @@ function defaultProfile(overrides = {}) {
 
 function getInitials(name = "") {
   const parts = name.trim().split(/\s+/).filter(Boolean);
-  if (parts.length === 0) return "BJ";
+  if (parts.length === 0) return "CT";
   return parts.slice(0, 2).map((part) => part[0]).join("").toUpperCase();
 }
 
@@ -724,7 +724,7 @@ function DetailPanel({ job, onClose, onStageChange, onUpdateNotes, onCompleteNex
         <ol className="history-list">
           <li>{job.statusDate}</li>
           <li>{job.source} added to tracker</li>
-          <li>Matched against UIUC MCS profile</li>
+          <li>Matched against your profile</li>
         </ol>
       )}
     </section>
@@ -907,7 +907,7 @@ function ProfileImagePicker({ value, onChange, compact = false }) {
 function AuthScreen({ onLogin, onRegister }) {
   const [mode, setMode] = useState("register");
   const [draft, setDraft] = useState({
-    name: "Brian Jien",
+    name: "",
     email: "",
     password: "",
     avatar: profilePresets[0].src,
@@ -945,8 +945,8 @@ function AuthScreen({ onLogin, onRegister }) {
         <div className="auth-visual">
           <img src={draft.avatar} alt="" />
           <div>
-            <strong>UIUC MCS</strong>
-            <span>Internship Tracker</span>
+            <strong>Career Tracker</strong>
+            <span>Internship + New Grad</span>
           </div>
         </div>
         <form className="auth-form" onSubmit={submit}>
@@ -957,12 +957,12 @@ function AuthScreen({ onLogin, onRegister }) {
           {isRegister && (
             <label>
               Name
-              <input value={draft.name} onChange={(event) => update("name", event.target.value)} placeholder="Brian Jien" />
+              <input value={draft.name} onChange={(event) => update("name", event.target.value)} placeholder="Your name" />
             </label>
           )}
           <label>
             Email
-            <input value={draft.email} onChange={(event) => update("email", event.target.value)} placeholder="you@illinois.edu" />
+            <input value={draft.email} onChange={(event) => update("email", event.target.value)} placeholder="you@example.com" />
           </label>
           <label>
             Password
@@ -2011,8 +2011,8 @@ export function App() {
           <div className="auth-visual">
             <img src={profilePresets[0].src} alt="" />
             <div>
-              <strong>UIUC MCS</strong>
-              <span>Internship Tracker</span>
+              <strong>Career Tracker</strong>
+              <span>Internship + New Grad</span>
             </div>
           </div>
           <div className="auth-form">
@@ -2032,10 +2032,10 @@ export function App() {
     <div className="app-shell">
       <aside className={classNames("sidebar", mobileNavOpen && "is-open")}>
         <div className="brand-lockup">
-          <img src="/assets/uiuc-mcs-mark.png" alt="UIUC MCS internship tracker mark" />
+          <img src="/assets/career-track-mark.svg" alt="Career tracker mark" />
           <div>
-            <strong>UIUC MCS</strong>
-            <span>Internship Tracker</span>
+            <strong>Career Tracker</strong>
+            <span>Internship + New Grad</span>
           </div>
         </div>
 
@@ -2077,7 +2077,7 @@ export function App() {
             <Menu size={20} />
           </IconButton>
           <div className="title-block">
-            <h1>UIUC MCS Internship Tracker</h1>
+            <h1>Career Tracker Dashboard</h1>
             <p>{profile.graduation} · {profile.program}</p>
           </div>
 

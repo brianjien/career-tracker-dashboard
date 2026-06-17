@@ -77,6 +77,6 @@ const server = createServer(async (request, response) => {
   await serveStatic(request, response, url);
 });
 
-server.listen(port, "127.0.0.1", () => {
-  console.log(`Full-stack server listening on http://127.0.0.1:${port}`);
+server.listen(port, "0.0.0.0", () => {
+  console.log(`Full-stack server listening on http://0.0.0.0:${port}`);
 });

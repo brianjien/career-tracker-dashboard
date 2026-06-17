@@ -61,7 +61,7 @@ function normalizeAuthDraft(body) {
     email: String(body.email || "").trim().toLowerCase(),
     password: String(body.password || ""),
     profile: {
-      name: String(body.name || body.profile?.name || "Brian Jien").trim(),
+      name: String(body.name || body.profile?.name || "Candidate").trim(),
       avatar: body.avatar || body.profile?.avatar,
       program: body.profile?.program,
       graduation: body.profile?.graduation,
@@ -89,7 +89,7 @@ export async function handleApiRequest(request, response) {
     if (url.pathname === "/api/health") {
       sendJson(response, 200, {
         ok: true,
-        service: "uiuc-mcs-internship-tracker",
+        service: "career-tracker-dashboard",
         database: await pingDatabase(),
       });
       return true;
