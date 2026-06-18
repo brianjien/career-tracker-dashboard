@@ -18,6 +18,7 @@ import {
   FiCircle as CircleDot,
   FiClock as Clock3,
   FiColumns as Columns3,
+  FiCopy as Copy,
   FiExternalLink as ExternalLink,
   FiFileText as FileText,
   FiFilter as Filter,
@@ -41,7 +42,9 @@ import {
   FiShield as ShieldCheck,
   FiZap as Sparkles,
   FiTarget as Target,
+  FiTrash2 as Trash2,
   FiAward as Trophy,
+  FiUpload as Upload,
   FiUser as UserRound,
   FiUsers as Users,
   FiX as X,
@@ -157,6 +160,24 @@ const emptyStoredData = {
 };
 
 const blankGoal = { target: "", deadline: "", label: "" };
+const documentTypeOptions = ["Resume", "Cover Letter", "Portfolio", "Transcript", "Referral Note", "Template", "Other"];
+const documentStatusOptions = ["Draft", "Needs Review", "Ready", "Submitted", "Archived"];
+const embeddedDocumentLimit = 520_000;
+
+const blankDocumentDraft = {
+  name: "",
+  type: "Resume",
+  status: "Draft",
+  target: "General",
+  url: "",
+  version: "v1",
+  owner: "",
+  notes: "",
+  fileName: "",
+  fileType: "",
+  fileSize: 0,
+  fileData: "",
+};
 
 function defaultProfile(overrides = {}) {
   return {
@@ -173,6 +194,37 @@ function getInitials(name = "") {
   const parts = name.trim().split(/\s+/).filter(Boolean);
   if (parts.length === 0) return "CT";
   return parts.slice(0, 2).map((part) => part[0]).join("").toUpperCase();
+}
+
+function normalizeDocument(document = {}) {
+  return {
+    id: document.id || `document-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+    name: document.name || "Untitled document",
+    type: document.type || document.kind || "Resume",
+    status: document.status || "Draft",
+    target: document.target || document.job || "General",
+    url: document.url || "",
+    version: document.version || "v1",
+    owner: document.owner || "",
+    notes: document.notes || "",
+    fileName: document.fileName || "",
+    fileType: document.fileType || "",
+    fileSize: Number(document.fileSize || 0),
+    fileData: document.fileData || "",
+    updated: document.updated || new Date().toISOString(),
+  };
+}
+
+function formatBytes(value = 0) {
+  const bytes = Number(value || 0);
+  if (!bytes) return "";
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function isOpenableUrl(value = "") {
+  return /^https?:\/\//i.test(String(value).trim());
 }
 
 function readAuthToken() {
@@ -263,7 +315,7 @@ function normalizeWorkspace(workspace = emptyStoredData) {
     jobs: Array.isArray(workspace.jobs) ? workspace.jobs : [],
     tasks: Array.isArray(workspace.tasks) ? workspace.tasks.map((task) => ({ ...task, icon: CheckSquare2 })) : [],
     contacts: Array.isArray(workspace.contacts) ? workspace.contacts : [],
-    documents: Array.isArray(workspace.documents) ? workspace.documents : [],
+    documents: Array.isArray(workspace.documents) ? workspace.documents.map(normalizeDocument) : [],
     goal: workspace.goal && typeof workspace.goal === "object" ? workspace.goal : blankGoal,
   };
 }
@@ -305,7 +357,7 @@ function loadContacts() {
 }
 
 function loadDocuments() {
-  return readStoredData().documents;
+  return readStoredData().documents.map(normalizeDocument);
 }
 
 function loadGoal() {
@@ -1443,60 +1495,331 @@ function TasksView({ tasks, onToggleTask, onAddTask }) {
   );
 }
 
-function DocumentsView({ documents, onAddDocument }) {
-  const [draft, setDraft] = useState({ name: "", url: "", status: "Draft" });
+function DocumentsView({
+  documents,
+  jobs,
+  onAddDocument,
+  onUpdateDocument,
+  onDeleteDocument,
+  onDuplicateDocument,
+  onToast,
+}) {
+  const fileInputRef = useRef(null);
+  const [draft, setDraft] = useState(blankDocumentDraft);
+  const [editingId, setEditingId] = useState("");
+  const [query, setQuery] = useState("");
+  const [statusFilter, setStatusFilter] = useState("All");
+  const [typeFilter, setTypeFilter] = useState("All");
+  const [fileNotice, setFileNotice] = useState("");
+
+  const targetOptions = useMemo(() => {
+    const seen = new Set(["General"]);
+    const options = ["General"];
+    jobs.forEach((job) => {
+      const label = `${job.company} · ${job.role}`;
+      if (!seen.has(label)) {
+        seen.add(label);
+        options.push(label);
+      }
+    });
+    return options;
+  }, [jobs]);
+
+  const filteredDocuments = useMemo(() => {
+    const needle = query.trim().toLowerCase();
+    return documents.filter((document) => {
+      const matchesStatus = statusFilter === "All" || document.status === statusFilter;
+      const matchesType = typeFilter === "All" || document.type === typeFilter;
+      const blob = `${document.name} ${document.type} ${document.status} ${document.target} ${document.url} ${document.notes}`.toLowerCase();
+      return matchesStatus && matchesType && (!needle || blob.includes(needle));
+    });
+  }, [documents, query, statusFilter, typeFilter]);
+
+  const readyCount = documents.filter((document) => document.status === "Ready" || document.status === "Submitted").length;
+  const reviewCount = documents.filter((document) => document.status === "Needs Review").length;
+  const linkedCount = documents.filter((document) => document.url || document.fileData).length;
+  const sortedDocumentUpdates = documents
+    .map((document) => document.updated)
+    .filter(Boolean)
+    .sort();
+  const latestUpdate = sortedDocumentUpdates[sortedDocumentUpdates.length - 1];
 
   function update(field, value) {
     setDraft((current) => ({ ...current, [field]: value }));
   }
 
+  function resetDraft() {
+    setDraft(blankDocumentDraft);
+    setEditingId("");
+    setFileNotice("");
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  }
+
+  function editDocument(document) {
+    setDraft({
+      ...blankDocumentDraft,
+      ...document,
+      target: document.target || "General",
+    });
+    setEditingId(document.id);
+    setFileNotice(document.fileName ? `${document.fileName}${document.fileSize ? ` · ${formatBytes(document.fileSize)}` : ""}` : "");
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  }
+
+  function clearAttachedFile() {
+    setDraft((current) => ({ ...current, fileName: "", fileType: "", fileSize: 0, fileData: "" }));
+    setFileNotice("");
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  }
+
+  function handleFileChange(event) {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    const fileMeta = {
+      fileName: file.name,
+      fileType: file.type,
+      fileSize: file.size,
+    };
+    if (file.size > embeddedDocumentLimit) {
+      setDraft((current) => ({ ...current, ...fileMeta, fileData: "" }));
+      setFileNotice(`${file.name} · ${formatBytes(file.size)} · link required`);
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      setDraft((current) => ({ ...current, ...fileMeta, fileData: String(reader.result || "") }));
+      setFileNotice(`${file.name} · ${formatBytes(file.size)} attached`);
+    };
+    reader.onerror = () => {
+      setDraft((current) => ({ ...current, ...fileMeta, fileData: "" }));
+      setFileNotice(`${file.name} could not attach`);
+    };
+    reader.readAsDataURL(file);
+  }
+
   function submit(event) {
     event.preventDefault();
     if (!draft.name.trim()) return;
-    onAddDocument({
-      id: `document-${Date.now()}`,
+    const nextDocument = normalizeDocument({
+      ...draft,
+      id: editingId || `document-${Date.now()}`,
       name: draft.name.trim(),
       url: draft.url.trim(),
+      target: draft.target.trim() || "General",
+      owner: draft.owner.trim(),
+      notes: draft.notes.trim(),
+      version: draft.version.trim() || "v1",
       status: draft.status,
       updated: new Date().toISOString(),
     });
-    setDraft({ name: "", url: "", status: "Draft" });
+    if (editingId) {
+      onUpdateDocument(editingId, nextDocument);
+    } else {
+      onAddDocument(nextDocument);
+    }
+    resetDraft();
+  }
+
+  async function copyLink(document) {
+    if (!document.url) return;
+    try {
+      await navigator.clipboard.writeText(document.url);
+      onToast(`${document.name} link copied`);
+    } catch {
+      onToast("Link could not be copied");
+    }
   }
 
   return (
     <section className="view-shell">
       <ViewHeader eyebrow="Documents" title="Resume and application assets" />
-      <form className="inline-data-form" onSubmit={submit}>
-        <input value={draft.name} onChange={(event) => update("name", event.target.value)} placeholder="Document name" />
-        <input value={draft.url} onChange={(event) => update("url", event.target.value)} placeholder="Link or local note" />
-        <select value={draft.status} onChange={(event) => update("status", event.target.value)}>
-          <option>Draft</option>
-          <option>Ready</option>
-          <option>Needs Review</option>
-        </select>
-        <button className="secondary-button" type="submit">
-          <Plus size={16} aria-hidden="true" />
-          Add Document
-        </button>
-      </form>
-      {documents.length === 0 && (
-        <EmptyState icon={FileText} title="No documents yet" text="Add resumes, templates, or portfolio links when you create them." />
-      )}
-      <div className="document-grid">
-        {documents.map((doc) => (
-          <article key={doc.id}>
-            <FileText size={20} aria-hidden="true" />
-            <strong>{doc.name}</strong>
-            <span>{doc.status} · {formatDate(doc.updated, { month: "short", day: "numeric", year: "numeric" })}</span>
-            {doc.url ? (
-              <a className="secondary-button" href={doc.url} target="_blank" rel="noreferrer">
-                Open <ArrowUpRight size={14} aria-hidden="true" />
-              </a>
-            ) : (
-              <button className="secondary-button" type="button">Review</button>
+      <div className="document-stats">
+        <article>
+          <strong>{documents.length}</strong>
+          <span>assets</span>
+        </article>
+        <article>
+          <strong>{readyCount}</strong>
+          <span>ready</span>
+        </article>
+        <article>
+          <strong>{reviewCount}</strong>
+          <span>needs review</span>
+        </article>
+        <article>
+          <strong>{linkedCount}</strong>
+          <span>linked</span>
+        </article>
+        <article>
+          <strong>{latestUpdate ? formatDate(latestUpdate, { month: "short", day: "numeric" }) : "None"}</strong>
+          <span>last update</span>
+        </article>
+      </div>
+
+      <div className="document-workspace">
+        <form className="document-form" onSubmit={submit}>
+          <div className="document-form-head">
+            <FileText size={18} aria-hidden="true" />
+            <span>
+              <strong>{editingId ? "Edit asset" : "New asset"}</strong>
+              <small>{editingId ? "Updating saved document" : "Saved to your workspace"}</small>
+            </span>
+          </div>
+          <label>
+            Name
+            <input value={draft.name} onChange={(event) => update("name", event.target.value)} placeholder="SWE resume v1" />
+          </label>
+          <label>
+            Type
+            <select value={draft.type} onChange={(event) => update("type", event.target.value)}>
+              {documentTypeOptions.map((type) => <option key={type}>{type}</option>)}
+            </select>
+          </label>
+          <label>
+            Status
+            <select value={draft.status} onChange={(event) => update("status", event.target.value)}>
+              {documentStatusOptions.map((status) => <option key={status}>{status}</option>)}
+            </select>
+          </label>
+          <label>
+            Target
+            <select value={draft.target} onChange={(event) => update("target", event.target.value)}>
+              {targetOptions.map((target) => <option key={target}>{target}</option>)}
+            </select>
+          </label>
+          <label>
+            Version
+            <input value={draft.version} onChange={(event) => update("version", event.target.value)} placeholder="v1" />
+          </label>
+          <label>
+            Owner
+            <input value={draft.owner} onChange={(event) => update("owner", event.target.value)} placeholder="Self, mentor, recruiter" />
+          </label>
+          <label className="document-wide-field">
+            Link
+            <input value={draft.url} onChange={(event) => update("url", event.target.value)} placeholder="https://drive.google.com/..." />
+          </label>
+          <label className="document-file-field">
+            File
+            <input ref={fileInputRef} type="file" onChange={handleFileChange} />
+            <span>
+              <Upload size={15} aria-hidden="true" />
+              {fileNotice || "Choose file"}
+            </span>
+          </label>
+          {draft.fileName && (
+            <button className="text-button document-clear-file" type="button" onClick={clearAttachedFile}>
+              Remove file
+            </button>
+          )}
+          <label className="document-wide-field">
+            Notes
+            <textarea value={draft.notes} onChange={(event) => update("notes", event.target.value)} placeholder="Tailoring notes, reviewer feedback, or usage rules" />
+          </label>
+          <div className="document-form-actions">
+            {editingId && (
+              <button className="secondary-button" type="button" onClick={resetDraft}>
+                Cancel
+              </button>
             )}
-          </article>
-        ))}
+            <button className="primary-button" type="submit">
+              <Plus size={16} aria-hidden="true" />
+              {editingId ? "Save Changes" : "Add Asset"}
+            </button>
+          </div>
+        </form>
+
+        <div className="document-library">
+          <div className="document-toolbar">
+            <div className="document-search">
+              <Search size={16} aria-hidden="true" />
+              <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search documents" />
+            </div>
+            <select value={typeFilter} onChange={(event) => setTypeFilter(event.target.value)}>
+              <option>All</option>
+              {documentTypeOptions.map((type) => <option key={type}>{type}</option>)}
+            </select>
+            <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}>
+              <option>All</option>
+              {documentStatusOptions.map((status) => <option key={status}>{status}</option>)}
+            </select>
+          </div>
+
+          {documents.length === 0 && (
+            <EmptyState icon={FileText} title="No documents yet" text="Add resumes, templates, or portfolio links when you create them." />
+          )}
+          {documents.length > 0 && filteredDocuments.length === 0 && (
+            <EmptyState icon={Filter} title="No matching documents" text="Adjust the filters or search term." />
+          )}
+          <div className="document-grid">
+            {filteredDocuments.map((doc) => {
+              const canOpenLink = isOpenableUrl(doc.url);
+              return (
+                <article key={doc.id} className="document-card">
+                  <div className="document-card-head">
+                    <span className="document-icon" aria-hidden="true">
+                      <FileText size={18} />
+                    </span>
+                    <span>
+                      <strong>{doc.name}</strong>
+                      <small>{doc.type} · {doc.target || "General"}</small>
+                    </span>
+                    <small className={classNames("document-status", `is-${doc.status.toLowerCase().replace(/\s+/g, "-")}`)}>
+                      {doc.status}
+                    </small>
+                  </div>
+                  <div className="document-meta">
+                    <span>
+                      Version
+                      <strong>{doc.version}</strong>
+                    </span>
+                    <span>
+                      Updated
+                      <strong>{formatDate(doc.updated, { month: "short", day: "numeric" })}</strong>
+                    </span>
+                    <span>
+                      Owner
+                      <strong>{doc.owner || "Self"}</strong>
+                    </span>
+                  </div>
+                  {(doc.fileName || doc.url) && (
+                    <div className="document-source">
+                      {doc.fileName ? `${doc.fileName}${doc.fileSize ? ` · ${formatBytes(doc.fileSize)}` : ""}` : doc.url}
+                    </div>
+                  )}
+                  {doc.notes && <p className="document-notes">{doc.notes}</p>}
+                  <div className="document-card-actions">
+                    {canOpenLink ? (
+                      <a className="secondary-button" href={doc.url} target="_blank" rel="noreferrer">
+                        Open <ArrowUpRight size={14} aria-hidden="true" />
+                      </a>
+                    ) : doc.fileData ? (
+                      <a className="secondary-button" href={doc.fileData} download={doc.fileName || `${doc.name}.txt`}>
+                        Download <ArrowUpRight size={14} aria-hidden="true" />
+                      </a>
+                    ) : (
+                      <button className="secondary-button" type="button" disabled>
+                        Open
+                      </button>
+                    )}
+                    <button className="secondary-button" type="button" onClick={() => editDocument(doc)} aria-label={`Edit ${doc.name}`}>
+                      <Pencil size={14} aria-hidden="true" />
+                    </button>
+                    <button className="secondary-button" type="button" onClick={() => copyLink(doc)} disabled={!doc.url} aria-label={`Copy ${doc.name} link`}>
+                      <Copy size={14} aria-hidden="true" />
+                    </button>
+                    <button className="secondary-button" type="button" onClick={() => onDuplicateDocument(doc.id)} aria-label={`Duplicate ${doc.name}`}>
+                      <Plus size={14} aria-hidden="true" />
+                    </button>
+                    <button className="secondary-button danger-button" type="button" onClick={() => onDeleteDocument(doc.id)} aria-label={`Delete ${doc.name}`}>
+                      <Trash2 size={14} aria-hidden="true" />
+                    </button>
+                  </div>
+                </article>
+              );
+            })}
+          </div>
+        </div>
       </div>
     </section>
   );
@@ -1935,8 +2258,34 @@ export function App() {
   }
 
   function addDocument(document) {
-    setDocuments((current) => [document, ...current]);
+    const nextDocument = normalizeDocument(document);
+    setDocuments((current) => [nextDocument, ...current]);
     setToast(`${document.name} added to documents`);
+  }
+
+  function updateDocument(id, nextDocument) {
+    setDocuments((current) => current.map((document) => (document.id === id ? normalizeDocument({ ...document, ...nextDocument, id }) : document)));
+    setToast(`${nextDocument.name || "Document"} updated`);
+  }
+
+  function deleteDocument(id) {
+    const document = documents.find((item) => item.id === id);
+    setDocuments((current) => current.filter((item) => item.id !== id));
+    setToast(`${document?.name || "Document"} deleted`);
+  }
+
+  function duplicateDocument(id) {
+    const document = documents.find((item) => item.id === id);
+    if (!document) return;
+    const copy = normalizeDocument({
+      ...document,
+      id: `document-${Date.now()}`,
+      name: `${document.name} Copy`,
+      status: "Draft",
+      updated: new Date().toISOString(),
+    });
+    setDocuments((current) => [copy, ...current]);
+    setToast(`${document.name} duplicated`);
   }
 
   function updateGoal(nextGoal) {
@@ -2087,7 +2436,19 @@ export function App() {
     if (activeView === "Contacts") return <ContactsView contacts={contacts} jobs={jobs} onAddContact={addContact} />;
     if (activeView === "Calendar") return <CalendarView jobs={jobs} onSelectJob={(id) => { setSelectedId(id); setActiveView("Pipeline"); }} />;
     if (activeView === "Tasks") return <TasksView tasks={tasks} onToggleTask={toggleTask} onAddTask={addTask} />;
-    if (activeView === "Documents") return <DocumentsView documents={documents} onAddDocument={addDocument} />;
+    if (activeView === "Documents") {
+      return (
+        <DocumentsView
+          documents={documents}
+          jobs={jobs}
+          onAddDocument={addDocument}
+          onUpdateDocument={updateDocument}
+          onDeleteDocument={deleteDocument}
+          onDuplicateDocument={duplicateDocument}
+          onToast={setToast}
+        />
+      );
+    }
     if (activeView === "Analytics") return <AnalyticsView jobs={jobs} />;
     if (activeView === "Resources") return <ResourcesView />;
     if (activeView === "Settings") {
