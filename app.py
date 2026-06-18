@@ -439,15 +439,15 @@ def auth_complete_html():
         try {
           var params = new URLSearchParams(window.location.hash.replace(/^#/, ""));
           var token = params.get("auth_token");
-          if (!token) {
-            window.location.replace("/?auth_error=google_missing_token");
-            return;
+          if (token) {
+            try {
+              window.localStorage.setItem("career-tracker-auth-token-v1", token);
+            } catch (error) {}
           }
-          window.localStorage.setItem("career-tracker-auth-token-v1", token);
           window.history.replaceState(null, "", "/auth/complete");
           window.location.replace("/");
         } catch (error) {
-          window.location.replace("/?auth_error=browser_storage");
+          window.location.replace("/");
         }
       })();
     </script>
@@ -843,14 +843,14 @@ def google_login():
         return json_response({"error": "Google credential could not be verified."}, 401)
 
 
-@app.post("/api/auth/google/redirect")
+@app.route("/api/auth/google/redirect", methods=["GET", "POST"])
 def google_redirect():
-    csrf_body = request.form.get("g_csrf_token", "")
+    csrf_body = request.values.get("g_csrf_token", "")
     csrf_cookie = request.cookies.get("g_csrf_token", "")
     if (csrf_body or csrf_cookie) and csrf_body != csrf_cookie:
         log_google_auth_issue("csrf_mismatch")
         return redirect("/?auth_error=google_csrf", code=303)
-    credential = str(request.form.get("credential", ""))
+    credential = str(request.values.get("credential", ""))
     if not credential:
         log_google_auth_issue("missing_credential")
         return redirect("/?auth_error=google_missing_credential", code=303)
