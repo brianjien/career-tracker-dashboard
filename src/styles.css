@@ -2827,6 +2827,114 @@ a {
   line-height: 1;
 }
 
+.sankey-card {
+  grid-column: 1 / -1;
+  gap: 12px;
+}
+
+.sankey-card-head {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.sankey-card-head h3,
+.sankey-card-head p {
+  margin: 0;
+}
+
+.sankey-card-head h3 {
+  font-size: 16px;
+}
+
+.sankey-card-head p {
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.sankey-actions {
+  display: inline-flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.sankey-scroll {
+  overflow-x: auto;
+  padding: 4px 2px 2px;
+  border: 1px solid #e6eee4;
+  border-radius: 8px;
+  background: #fff;
+}
+
+.sankey-svg {
+  display: block;
+  width: 100%;
+  min-width: 920px;
+  height: auto;
+}
+
+.sankey-title {
+  fill: #124166;
+  font-size: 25px;
+  font-weight: 850;
+}
+
+.sankey-subtitle {
+  fill: #5f6d65;
+  font-size: 13px;
+  font-weight: 720;
+}
+
+.sankey-flow {
+  opacity: 0.76;
+}
+
+.sankey-flow.is-green {
+  stroke: #53c861;
+}
+
+.sankey-flow.is-red {
+  stroke: #c9484d;
+}
+
+.sankey-node.is-green rect {
+  fill: #0aa044;
+}
+
+.sankey-node.is-red rect {
+  fill: #bd272d;
+}
+
+.sankey-node.is-empty {
+  opacity: 0.38;
+}
+
+.sankey-label-main,
+.sankey-label-value {
+  fill: #0f1813;
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+.sankey-label-main {
+  font-size: 11px;
+  font-weight: 850;
+}
+
+.sankey-label-value {
+  font-size: 13px;
+  font-weight: 950;
+}
+
+.sankey-empty text {
+  fill: var(--muted);
+  font-size: 14px;
+  font-weight: 760;
+}
+
 .settings-sources a {
   color: var(--green);
   font-size: 12px;
@@ -3368,6 +3476,17 @@ a {
   .analytics-grid,
   .settings-grid {
     grid-template-columns: 1fr;
+  }
+
+  .sankey-card-head {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .sankey-actions {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    justify-content: stretch;
   }
 
   .document-stats {

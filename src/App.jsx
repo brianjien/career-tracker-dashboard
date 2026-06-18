@@ -165,6 +165,19 @@ const blankGoal = { target: "", deadline: "", label: "" };
 const documentTypeOptions = ["Resume", "Cover Letter", "Portfolio", "Transcript", "Referral Note", "Template", "Other"];
 const documentStatusOptions = ["Draft", "Needs Review", "Ready", "Submitted", "Archived"];
 const embeddedDocumentLimit = 520_000;
+const sankeyExportStyles = `
+  .sankey-title { fill: #124166; font: 850 25px Inter, Arial, sans-serif; }
+  .sankey-subtitle { fill: #5f6d65; font: 720 13px Inter, Arial, sans-serif; }
+  .sankey-flow { opacity: .76; }
+  .sankey-flow.is-green { stroke: #53c861; }
+  .sankey-flow.is-red { stroke: #c9484d; }
+  .sankey-node.is-green rect { fill: #0aa044; }
+  .sankey-node.is-red rect { fill: #bd272d; }
+  .sankey-node.is-empty { opacity: .38; }
+  .sankey-label-main { fill: #0f1813; font: 850 11px Inter, Arial, sans-serif; }
+  .sankey-label-value { fill: #0f1813; font: 950 13px Inter, Arial, sans-serif; }
+  .sankey-empty text { fill: #657067; font: 760 14px Inter, Arial, sans-serif; }
+`;
 
 const blankDocumentDraft = {
   name: "",
@@ -432,6 +445,60 @@ function formatDate(value, options = { month: "short", day: "numeric" }) {
   return new Intl.DateTimeFormat("en-US", options).format(date);
 }
 
+function downloadBlob(blob, filename) {
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = filename;
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  URL.revokeObjectURL(url);
+}
+
+function serializeSvg(svgElement) {
+  const clone = svgElement.cloneNode(true);
+  clone.setAttribute("xmlns", "http://www.w3.org/2000/svg");
+  clone.setAttribute("width", "1120");
+  clone.setAttribute("height", "520");
+  const style = document.createElementNS("http://www.w3.org/2000/svg", "style");
+  style.textContent = sankeyExportStyles;
+  clone.insertBefore(style, clone.firstChild);
+  return new XMLSerializer().serializeToString(clone);
+}
+
+function downloadSvg(svgElement, filename) {
+  if (!svgElement) return;
+  downloadBlob(new Blob([serializeSvg(svgElement)], { type: "image/svg+xml;charset=utf-8" }), filename);
+}
+
+function downloadSvgAsPng(svgElement, filename) {
+  if (!svgElement) return;
+  const svgString = serializeSvg(svgElement);
+  const svgUrl = URL.createObjectURL(new Blob([svgString], { type: "image/svg+xml;charset=utf-8" }));
+  const image = new Image();
+  image.onload = () => {
+    const canvas = document.createElement("canvas");
+    const scale = 2;
+    canvas.width = 1120 * scale;
+    canvas.height = 520 * scale;
+    const context = canvas.getContext("2d");
+    if (!context) {
+      URL.revokeObjectURL(svgUrl);
+      return;
+    }
+    context.fillStyle = "#ffffff";
+    context.fillRect(0, 0, canvas.width, canvas.height);
+    context.drawImage(image, 0, 0, canvas.width, canvas.height);
+    canvas.toBlob((blob) => {
+      if (blob) downloadBlob(blob, filename);
+      URL.revokeObjectURL(svgUrl);
+    }, "image/png");
+  };
+  image.onerror = () => URL.revokeObjectURL(svgUrl);
+  image.src = svgUrl;
+}
+
 function daysUntil(value) {
   const today = new Date();
   const deadline = new Date(`${value}T12:00:00`);
@@ -649,6 +716,101 @@ function OpportunityPreviewModal({ job, imported, onClose, onImport }) {
         </div>
       </div>
     </div>
+  );
+}
+
+function buildSankeyStats(jobs = []) {
+  const counts = {
+    total: jobs.length,
+    saved: jobs.filter((job) => job.stage === "saved").length,
+    applied: jobs.filter((job) => job.stage === "applied").length,
+    oa: jobs.filter((job) => job.stage === "oa").length,
+    interview: jobs.filter((job) => job.stage === "interview").length,
+    offer: jobs.filter((job) => job.stage === "offer").length,
+  };
+  counts.sent = Math.max(0, counts.total - counts.saved);
+  counts.replies = counts.oa + counts.interview + counts.offer;
+  counts.interviewLoop = counts.interview + counts.offer;
+
+  const nodes = [
+    { id: "tracked", label: "Roles tracked", value: counts.total, x: 80, y: 260, tone: "green" },
+    { id: "saved", label: "Not applied yet", value: counts.saved, x: 270, y: 360, tone: "red" },
+    { id: "sent", label: "Applications sent", value: counts.sent, x: 270, y: 175, tone: "green" },
+    { id: "noReply", label: "No reply / stalled", value: counts.applied, x: 475, y: 285, tone: "red" },
+    { id: "replies", label: "Replies or screens", value: counts.replies, x: 475, y: 130, tone: "green" },
+    { id: "oa", label: "OA / assessment", value: counts.oa, x: 690, y: 92, tone: "green" },
+    { id: "interview", label: "Interview loop", value: counts.interviewLoop, x: 690, y: 190, tone: "green" },
+    { id: "stillInterviewing", label: "Still interviewing", value: counts.interview, x: 900, y: 238, tone: "green" },
+    { id: "offer", label: "Offer received", value: counts.offer, x: 900, y: 130, tone: "green" },
+  ];
+  const nodeMap = Object.fromEntries(nodes.map((node) => [node.id, node]));
+  const links = [
+    { from: "tracked", to: "sent", value: counts.sent, tone: "green", y1: 242, y2: 180 },
+    { from: "tracked", to: "saved", value: counts.saved, tone: "red", y1: 282, y2: 360 },
+    { from: "sent", to: "replies", value: counts.replies, tone: "green", y1: 164, y2: 132 },
+    { from: "sent", to: "noReply", value: counts.applied, tone: "red", y1: 198, y2: 286 },
+    { from: "replies", to: "oa", value: counts.oa, tone: "green", y1: 116, y2: 92 },
+    { from: "replies", to: "interview", value: counts.interviewLoop, tone: "green", y1: 148, y2: 190 },
+    { from: "interview", to: "offer", value: counts.offer, tone: "green", y1: 178, y2: 130 },
+    { from: "interview", to: "stillInterviewing", value: counts.interview, tone: "green", y1: 208, y2: 238 },
+  ].filter((link) => link.value > 0);
+  return { counts, nodes, nodeMap, links };
+}
+
+function sankeyPath(x1, y1, x2, y2) {
+  const curve = Math.max(60, (x2 - x1) * 0.58);
+  return `M ${x1} ${y1} C ${x1 + curve} ${y1}, ${x2 - curve} ${y2}, ${x2} ${y2}`;
+}
+
+function JobSearchSankey({ jobs, svgRef }) {
+  const { counts, nodes, nodeMap, links } = buildSankeyStats(jobs);
+  const maxFlow = Math.max(1, counts.total);
+  const flowScale = Math.min(30, 150 / maxFlow);
+  const activeCompanies = new Set(jobs.map((job) => job.company).filter(Boolean)).size;
+
+  return (
+    <svg ref={svgRef} className="sankey-svg" viewBox="0 0 1120 520" role="img" aria-label="Job search Sankey diagram">
+      <rect width="1120" height="520" rx="8" fill="#ffffff" />
+      <text x="560" y="58" textAnchor="middle" className="sankey-title">
+        Job Search Sankey
+      </text>
+      <text x="560" y="85" textAnchor="middle" className="sankey-subtitle">
+        {counts.total} tracked roles across {activeCompanies} companies
+      </text>
+
+      <g fill="none" strokeLinecap="round">
+        {links.map((link) => {
+          const from = nodeMap[link.from];
+          const to = nodeMap[link.to];
+          return (
+            <path
+              key={`${link.from}-${link.to}`}
+              d={sankeyPath(from.x + 12, link.y1, to.x - 12, link.y2)}
+              className={classNames("sankey-flow", `is-${link.tone}`)}
+              strokeWidth={Math.max(5, link.value * flowScale)}
+            />
+          );
+        })}
+      </g>
+
+      {nodes.map((node) => (
+        <g key={node.id} className={classNames("sankey-node", `is-${node.tone}`, node.value === 0 && "is-empty")} transform={`translate(${node.x}, ${node.y})`}>
+          <rect x="-10" y="-38" width="20" height="76" rx="4" />
+          <text className="sankey-label-main" x={node.x > 760 ? 18 : -18} y="-4" textAnchor={node.x > 760 ? "start" : "end"}>
+            {node.label}
+          </text>
+          <text className="sankey-label-value" x={node.x > 760 ? 18 : -18} y="15" textAnchor={node.x > 760 ? "start" : "end"}>
+            {node.value}
+          </text>
+        </g>
+      ))}
+
+      {counts.total === 0 && (
+        <g className="sankey-empty">
+          <text x="560" y="250" textAnchor="middle">Import or add roles to generate your Sankey diagram.</text>
+        </g>
+      )}
+    </svg>
   );
 }
 
@@ -2156,6 +2318,7 @@ function DocumentsView({
 }
 
 function AnalyticsView({ jobs }) {
+  const sankeyRef = useRef(null);
   const counts = stages.map((stage) => ({
     ...stage,
     count: jobs.filter((job) => job.stage === stage.id).length,
@@ -2183,6 +2346,27 @@ function AnalyticsView({ jobs }) {
           <h3>Offer Rate</h3>
           <strong className="big-number">{offerRate}%</strong>
           <p>{jobs.length} tracked roles across {new Set(jobs.map((job) => job.company)).size} companies</p>
+        </article>
+        <article className="rail-card sankey-card">
+          <div className="sankey-card-head">
+            <span>
+              <h3>Job Search Sankey</h3>
+              <p>Generated from your saved, applied, OA, interview, and offer pipeline stages.</p>
+            </span>
+            <div className="sankey-actions">
+              <button className="secondary-button" type="button" onClick={() => downloadSvgAsPng(sankeyRef.current, "job-search-sankey.png")}>
+                <Download size={14} aria-hidden="true" />
+                PNG
+              </button>
+              <button className="secondary-button" type="button" onClick={() => downloadSvg(sankeyRef.current, "job-search-sankey.svg")}>
+                <Download size={14} aria-hidden="true" />
+                SVG
+              </button>
+            </div>
+          </div>
+          <div className="sankey-scroll">
+            <JobSearchSankey jobs={jobs} svgRef={sankeyRef} />
+          </div>
         </article>
       </div>
     </section>
