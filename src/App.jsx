@@ -216,8 +216,10 @@ function readAuthRedirectMessage() {
     const messages = {
       google_csrf: "Google sign-in security check failed. Refresh and try again.",
       google_missing_credential: "Google did not return a sign-in credential. Please try again.",
+      google_missing_token: "Google signed in, but the browser did not receive the app session. Please try again.",
       google_verify: "Google sign-in could not verify this account. Please try again.",
       google_session: "Google sign-in connected, but the database session could not be created.",
+      browser_storage: "Your browser blocked local session storage. Enable site storage and try again.",
       google: "Google sign-in could not finish. Please try again.",
     };
     return messages[errorCode] || "";

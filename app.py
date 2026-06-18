@@ -261,6 +261,15 @@ def auth_token():
     return request.headers.get("x-session-token") or request.cookies.get("ct_session") or ""
 
 
+def secure_cookie_enabled():
+    return bool(
+        os.environ.get("WASMER_APP_ID")
+        or os.environ.get("NODE_ENV") == "production"
+        or request.scheme == "https"
+        or request.headers.get("x-forwarded-proto") == "https"
+    )
+
+
 def find_user_by_token(token):
     if not token:
         return None
@@ -284,7 +293,7 @@ def find_user_by_token(token):
 def json_response(payload, status=200, token=None, clear_cookie=False):
     response = make_response(jsonify(payload), status)
     response.headers["cache-control"] = "no-store"
-    secure = os.environ.get("NODE_ENV") == "production" or request.scheme == "https" or request.headers.get("x-forwarded-proto") == "https"
+    secure = secure_cookie_enabled()
     if token:
         response.set_cookie("ct_session", token, max_age=30 * 24 * 60 * 60, httponly=True, samesite="Lax", secure=secure, path="/")
     if clear_cookie:
@@ -395,6 +404,55 @@ def log_google_auth_issue(reason, error=None):
     if error:
         detail = f"{detail}: {type(error).__name__}: {error}"
     print(detail, file=sys.stderr, flush=True)
+
+
+def auth_complete_html():
+    return """<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Completing sign in</title>
+    <style>
+      body {
+        align-items: center;
+        background: #eef8f1;
+        color: #17231d;
+        display: flex;
+        font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        min-height: 100vh;
+        justify-content: center;
+        margin: 0;
+      }
+      main { text-align: center; }
+      strong { color: #08783f; display: block; font-size: 14px; margin-bottom: 8px; }
+      h1 { font-size: 28px; margin: 0; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <strong>Career Tracker</strong>
+      <h1>Completing sign in</h1>
+    </main>
+    <script>
+      (function () {
+        try {
+          var params = new URLSearchParams(window.location.hash.replace(/^#/, ""));
+          var token = params.get("auth_token");
+          if (!token) {
+            window.location.replace("/?auth_error=google_missing_token");
+            return;
+          }
+          window.localStorage.setItem("career-tracker-auth-token-v1", token);
+          window.history.replaceState(null, "", "/auth/complete");
+          window.location.replace("/");
+        } catch (error) {
+          window.location.replace("/?auth_error=browser_storage");
+        }
+      })();
+    </script>
+  </body>
+</html>"""
 
 
 def decode_html(value=""):
@@ -798,9 +856,18 @@ def google_redirect():
     except Exception as error:
         log_google_auth_issue("session_failed", error)
         return redirect("/?auth_error=google_session", code=303)
-    response = redirect(f"/#auth_token={result['token']}", code=303)
-    secure = request.scheme == "https" or request.headers.get("x-forwarded-proto") == "https"
+    print("google_auth_success", file=sys.stderr, flush=True)
+    response = redirect(f"/auth/complete#auth_token={result['token']}", code=303)
+    secure = secure_cookie_enabled()
     response.set_cookie("ct_session", result["token"], max_age=30 * 24 * 60 * 60, httponly=True, samesite="Lax", secure=secure, path="/")
+    return response
+
+
+@app.get("/auth/complete")
+def auth_complete():
+    response = make_response(auth_complete_html(), 200)
+    response.headers["cache-control"] = "no-store"
+    response.headers["content-type"] = "text/html; charset=utf-8"
     return response
 
 
