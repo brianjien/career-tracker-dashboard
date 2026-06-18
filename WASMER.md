@@ -73,11 +73,13 @@ Build the frontend first:
 npm run build
 ```
 
-Then deploy the Flask app with Wasmer remote build. Use the Wasmer app name/owner that owns the `internship-tracker.wasmer.app` alias.
+Then deploy the Flask app through the project script:
 
 ```bash
-wasmer deploy --build-remote --non-interactive --no-persist-id
+npm run wasmer:deploy
 ```
+
+Do not run `wasmer deploy` directly from the repo root for production. Wasmer may auto-detect the Vite frontend and deploy a static-only build, which breaks `/api/*`. The npm script creates a temporary Flask-only bundle before calling Wasmer.
 
 After deploy, verify:
 
