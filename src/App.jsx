@@ -295,6 +295,20 @@ function getDocumentPreviewSource(document = {}) {
   return getEmbeddableDocumentUrl(document.url);
 }
 
+function dataUrlToBlobUrl(dataUrl = "") {
+  const match = String(dataUrl).match(/^data:([^;,]+)?((?:;[^,]+)*),(.*)$/s);
+  if (!match) return "";
+  const mimeType = match[1] || "application/octet-stream";
+  const flags = match[2] || "";
+  const payload = match[3] || "";
+  const binary = flags.includes(";base64") ? window.atob(payload.replace(/\s/g, "")) : decodeURIComponent(payload);
+  const bytes = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index += 1) {
+    bytes[index] = binary.charCodeAt(index);
+  }
+  return URL.createObjectURL(new Blob([bytes], { type: mimeType }));
+}
+
 function readAuthToken() {
   try {
     return window.localStorage.getItem(AUTH_TOKEN_KEY) || "";
@@ -637,7 +651,36 @@ function IconButton({ label, children, className = "", ...props }) {
 
 function DocumentPreviewPanel({ document }) {
   const mode = getDocumentPreviewMode(document);
-  const source = getDocumentPreviewSource(document);
+  const rawSource = getDocumentPreviewSource(document);
+  const [blobSource, setBlobSource] = useState("");
+  const shouldUseBlob = Boolean(document.fileData && (mode === "frame" || mode === "image"));
+
+  useEffect(() => {
+    setBlobSource("");
+    if (!shouldUseBlob) return undefined;
+    let nextSource = "";
+    try {
+      nextSource = dataUrlToBlobUrl(document.fileData);
+      setBlobSource(nextSource);
+    } catch {
+      setBlobSource("");
+    }
+    return () => {
+      if (nextSource) URL.revokeObjectURL(nextSource);
+    };
+  }, [document.fileData, shouldUseBlob]);
+
+  const source = shouldUseBlob ? blobSource : rawSource;
+
+  if (shouldUseBlob && !source) {
+    return (
+      <div className="document-preview-empty">
+        <FileText size={32} aria-hidden="true" />
+        <strong>Preparing preview</strong>
+        <span>If this file does not render, use Download to open the original file.</span>
+      </div>
+    );
+  }
 
   if (mode === "image") {
     return (
