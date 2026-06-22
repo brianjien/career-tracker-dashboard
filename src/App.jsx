@@ -153,12 +153,19 @@ const profilePresets = [
   { id: "signal", label: "Signal", src: "/assets/profile-presets/avatar-signal.svg" },
 ];
 
+const blankNotificationState = {
+  readIds: [],
+  dismissedIds: [],
+  browserAlerts: false,
+};
+
 const emptyStoredData = {
   jobs: [],
   tasks: [],
   contacts: [],
   documents: [],
   goal: null,
+  notificationState: blankNotificationState,
 };
 
 const blankGoal = { target: "", deadline: "", label: "" };
@@ -233,6 +240,33 @@ function normalizeDocument(document = {}) {
     fileUrl: document.fileUrl || "",
     storage: document.storage || "",
     updated: document.updated || new Date().toISOString(),
+  };
+}
+
+function safeNotificationId(value = "") {
+  const id = String(value || "").trim().slice(0, 180);
+  if (id.includes("..") || id.startsWith("/")) return "";
+  return /^[a-zA-Z0-9_.:@|/-]{1,180}$/.test(id) ? id : "";
+}
+
+function cleanNotificationIdList(value = []) {
+  if (!Array.isArray(value)) return [];
+  const seen = new Set();
+  return value.slice(0, 600).reduce((items, item) => {
+    const id = safeNotificationId(item);
+    if (id && !seen.has(id)) {
+      seen.add(id);
+      items.push(id);
+    }
+    return items;
+  }, []);
+}
+
+function normalizeNotificationState(state = {}) {
+  return {
+    readIds: cleanNotificationIdList(state.readIds),
+    dismissedIds: cleanNotificationIdList(state.dismissedIds),
+    browserAlerts: Boolean(state.browserAlerts),
   };
 }
 
@@ -441,13 +475,14 @@ async function uploadDocumentFile(file, token = readAuthToken()) {
   return payload;
 }
 
-function serializeWorkspace({ jobs, tasks, contacts, documents, goal }) {
+function serializeWorkspace({ jobs, tasks, contacts, documents, goal, notificationState }) {
   return {
     jobs,
     tasks: tasks.map(({ icon, ...task }) => task),
     contacts,
     documents,
     goal,
+    notificationState: normalizeNotificationState(notificationState),
   };
 }
 
@@ -458,6 +493,7 @@ function normalizeWorkspace(workspace = emptyStoredData) {
     contacts: Array.isArray(workspace.contacts) ? workspace.contacts : [],
     documents: Array.isArray(workspace.documents) ? workspace.documents.map(normalizeDocument) : [],
     goal: workspace.goal && typeof workspace.goal === "object" ? workspace.goal : blankGoal,
+    notificationState: normalizeNotificationState(workspace.notificationState),
   };
 }
 
@@ -480,6 +516,7 @@ function readStoredData() {
       contacts: Array.isArray(parsed.contacts) ? parsed.contacts : [],
       documents: Array.isArray(parsed.documents) ? parsed.documents : [],
       goal: parsed.goal && typeof parsed.goal === "object" ? parsed.goal : null,
+      notificationState: normalizeNotificationState(parsed.notificationState),
     };
   } catch {
     return emptyStoredData;
@@ -513,6 +550,10 @@ function loadGoal() {
     deadline: goal.deadline || "",
     label: goal.label || "",
   };
+}
+
+function loadNotificationState() {
+  return normalizeNotificationState(readStoredData().notificationState);
 }
 
 function createSprintLabels(count = 3) {
@@ -626,6 +667,146 @@ function formatRelativeDate(value) {
   return formatDate(value);
 }
 
+function notificationSeverityRank(severity = "info") {
+  return { critical: 0, warning: 1, success: 2, info: 3 }[severity] ?? 4;
+}
+
+function buildNotificationFeed({ jobs = [], tasks = [], documents = [], goal = blankGoal }) {
+  const notifications = [];
+  const appliedCount = jobs.filter((job) => job.stage !== "saved").length;
+  const goalTarget = Number(goal?.target || 0);
+  const goalDaysLeft = daysUntil(goal?.deadline);
+
+  function push(notification) {
+    const id = safeNotificationId(notification.id);
+    if (!id) return;
+    notifications.push({
+      severity: "info",
+      icon: Bell,
+      date: "",
+      dueDays: Number.POSITIVE_INFINITY,
+      native: false,
+      ...notification,
+      id,
+    });
+  }
+
+  tasks
+    .filter((task) => !task.done && task.due)
+    .forEach((task) => {
+      const dueDays = daysUntil(task.due);
+      if (dueDays > 7) return;
+      const isOverdue = dueDays < 0;
+      push({
+        id: `task:${task.id}:${task.due}`,
+        type: "Task",
+        icon: CheckSquare2,
+        title: isOverdue ? "Task overdue" : dueDays === 0 ? "Task due today" : "Task due soon",
+        body: `${task.title}${task.subtitle ? ` · ${task.subtitle}` : ""}`,
+        meta: formatRelativeDate(task.due),
+        severity: isOverdue || dueDays <= 1 || task.priority === "High" ? "critical" : "warning",
+        date: task.due,
+        dueDays,
+        native: isOverdue || dueDays <= 1,
+        action: { view: "Tasks", taskId: task.id },
+      });
+    });
+
+  jobs
+    .filter((job) => job.deadline && job.stage !== "offer")
+    .forEach((job) => {
+      const dueDays = daysUntil(job.deadline);
+      if (dueDays > 14) return;
+      const stageLabel = stages.find((stage) => stage.id === job.stage)?.label || "Pipeline";
+      push({
+        id: `job-deadline:${job.id}:${job.deadline}`,
+        type: "Deadline",
+        icon: CalendarDays,
+        title: dueDays < 0 ? "Application deadline passed" : dueDays === 0 ? "Application deadline today" : "Application deadline coming up",
+        body: `${job.company} · ${job.role}`,
+        meta: `${formatRelativeDate(job.deadline)} · ${stageLabel}`,
+        severity: dueDays < 0 || dueDays <= 1 ? "critical" : dueDays <= 7 ? "warning" : "info",
+        date: job.deadline,
+        dueDays,
+        native: dueDays >= 0 && dueDays <= 1,
+        action: { view: "Pipeline", jobId: job.id },
+      });
+    });
+
+  jobs
+    .filter((job) => job.stage === "interview")
+    .forEach((job) => {
+      push({
+        id: `interview:${job.id}:${job.statusDate || "active"}`,
+        type: "Pipeline",
+        icon: Users,
+        title: "Interview loop needs prep",
+        body: `${job.company} · ${job.nextStep || "Prepare notes and follow-up questions."}`,
+        meta: job.statusDate || "Interview stage",
+        severity: "info",
+        action: { view: "Pipeline", jobId: job.id },
+      });
+    });
+
+  jobs
+    .filter((job) => job.stage === "offer")
+    .forEach((job) => {
+      push({
+        id: `offer:${job.id}:${job.statusDate || "active"}`,
+        type: "Offer",
+        icon: Trophy,
+        title: "Offer to review",
+        body: `${job.company} · compare compensation, deadline, and fit.`,
+        meta: job.statusDate || "Offer stage",
+        severity: "success",
+        action: { view: "Pipeline", jobId: job.id },
+      });
+    });
+
+  documents
+    .filter((document) => document.status === "Needs Review")
+    .forEach((document) => {
+      push({
+        id: `document-review:${document.id}:${document.updated || "review"}`,
+        type: "Document",
+        icon: FileText,
+        title: "Document needs review",
+        body: `${document.name} · ${document.type} for ${document.target || "General"}`,
+        meta: document.updated ? `Updated ${formatDate(document.updated, { month: "short", day: "numeric" })}` : "Needs review",
+        severity: "warning",
+        action: { view: "Documents", documentId: document.id },
+      });
+    });
+
+  if (goalTarget > 0) {
+    const remaining = Math.max(0, goalTarget - appliedCount);
+    if (remaining > 0 && Number.isFinite(goalDaysLeft) && goalDaysLeft <= 14) {
+      push({
+        id: `goal:${goalTarget}:${goal.deadline || "open"}:${appliedCount}`,
+        type: "Goal",
+        icon: Target,
+        title: "Goal pace check",
+        body: `${appliedCount}/${goalTarget} ${goal.label || "applications"} logged. ${remaining} left to hit your goal.`,
+        meta: goal.deadline ? `${formatRelativeDate(goal.deadline)} to deadline` : "Goal active",
+        severity: goalDaysLeft <= 3 ? "critical" : "warning",
+        date: goal.deadline,
+        dueDays: goalDaysLeft,
+        native: goalDaysLeft <= 1,
+        action: { view: "Settings" },
+      });
+    }
+  }
+
+  return notifications
+    .sort((left, right) => {
+      const severityCompare = notificationSeverityRank(left.severity) - notificationSeverityRank(right.severity);
+      if (severityCompare !== 0) return severityCompare;
+      if (left.dueDays !== right.dueDays) return left.dueDays - right.dueDays;
+      return String(left.title).localeCompare(String(right.title));
+    })
+    .slice(0, 60);
+}
+
 function createCalendarFile(event) {
   const date = parseDateValue(event.date);
   if (!date) return null;
@@ -697,6 +878,138 @@ function IconButton({ label, children, className = "", ...props }) {
     <button className={classNames("icon-button", className)} type="button" aria-label={label} {...props}>
       {children}
     </button>
+  );
+}
+
+function NotificationCenter({
+  notifications,
+  notificationState,
+  browserPermission,
+  browserNotificationsAvailable,
+  isOpen,
+  onToggle,
+  onClose,
+  onOpenNotification,
+  onMarkAllRead,
+  onDismiss,
+  onRestoreDismissed,
+  onToggleBrowserAlerts,
+}) {
+  const shellRef = useRef(null);
+  const readSet = useMemo(() => new Set(notificationState.readIds), [notificationState.readIds]);
+  const dismissedSet = useMemo(() => new Set(notificationState.dismissedIds), [notificationState.dismissedIds]);
+  const visibleNotifications = notifications.filter((notification) => !dismissedSet.has(notification.id));
+  const unreadCount = visibleNotifications.filter((notification) => !readSet.has(notification.id)).length;
+  const dismissedCount = notifications.filter((notification) => dismissedSet.has(notification.id)).length;
+
+  useEffect(() => {
+    if (!isOpen) return undefined;
+    function closeOnPointer(event) {
+      if (shellRef.current && !shellRef.current.contains(event.target)) onClose();
+    }
+    function closeOnEscape(event) {
+      if (event.key === "Escape") onClose();
+    }
+    document.addEventListener("pointerdown", closeOnPointer);
+    window.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.removeEventListener("pointerdown", closeOnPointer);
+      window.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [isOpen, onClose]);
+
+  return (
+    <div className="notification-shell" ref={shellRef}>
+      <IconButton
+        label="Notifications"
+        className={classNames("notification-button", isOpen && "is-active")}
+        onClick={onToggle}
+        aria-haspopup="dialog"
+        aria-expanded={isOpen}
+      >
+        <Bell size={18} />
+        {unreadCount > 0 && <span className="notification-dot">{unreadCount}</span>}
+      </IconButton>
+
+      {isOpen && (
+        <div className="notification-panel" role="dialog" aria-label="Notifications">
+          <div className="notification-panel-head">
+            <span>
+              <small>Notifications</small>
+              <strong>{unreadCount ? `${unreadCount} unread` : "All caught up"}</strong>
+            </span>
+            <button
+              className="text-button"
+              type="button"
+              onClick={() => onMarkAllRead(visibleNotifications.map((notification) => notification.id))}
+              disabled={!unreadCount}
+            >
+              Mark all read
+            </button>
+          </div>
+
+          <div className="notification-toolbar">
+            <button
+              className={classNames("secondary-button", notificationState.browserAlerts && "is-active")}
+              type="button"
+              onClick={onToggleBrowserAlerts}
+              disabled={!browserNotificationsAvailable || browserPermission === "denied"}
+            >
+              <Bell size={14} aria-hidden="true" />
+              {notificationState.browserAlerts ? "Browser alerts on" : browserPermission === "denied" ? "Browser blocked" : "Browser alerts"}
+            </button>
+            {dismissedCount > 0 && (
+              <button className="secondary-button" type="button" onClick={onRestoreDismissed}>
+                Restore {dismissedCount}
+              </button>
+            )}
+          </div>
+
+          <div className="notification-list">
+            {visibleNotifications.length > 0 ? (
+              visibleNotifications.map((notification) => {
+                const Icon = notification.icon || Bell;
+                const unread = !readSet.has(notification.id);
+                return (
+                  <article
+                    key={notification.id}
+                    className={classNames("notification-item", `is-${notification.severity}`, unread && "is-unread")}
+                  >
+                    <button type="button" onClick={() => onOpenNotification(notification)}>
+                      <span className="notification-item-icon" aria-hidden="true">
+                        <Icon size={16} />
+                      </span>
+                      <span className="notification-copy">
+                        <span>
+                          <strong>{notification.title}</strong>
+                          <small>{notification.type}</small>
+                        </span>
+                        <p>{notification.body}</p>
+                        <em>{notification.meta}</em>
+                      </span>
+                    </button>
+                    <button
+                      className="notification-dismiss"
+                      type="button"
+                      onClick={() => onDismiss(notification.id)}
+                      aria-label={`Dismiss ${notification.title}`}
+                    >
+                      <X size={14} aria-hidden="true" />
+                    </button>
+                  </article>
+                );
+              })
+            ) : (
+              <div className="notification-empty">
+                <Bell size={24} aria-hidden="true" />
+                <strong>No active notifications</strong>
+                <span>Deadlines, tasks, document reviews, and goal alerts will appear here.</span>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -3258,6 +3571,12 @@ export function App() {
   const [contacts, setContacts] = useState(loadContacts);
   const [documents, setDocuments] = useState(loadDocuments);
   const [goal, setGoal] = useState(loadGoal);
+  const [notificationState, setNotificationState] = useState(loadNotificationState);
+  const [notificationPanelOpen, setNotificationPanelOpen] = useState(false);
+  const [browserPermission, setBrowserPermission] = useState(() => {
+    if (typeof window === "undefined" || !("Notification" in window)) return "unsupported";
+    return window.Notification.permission;
+  });
   const [selectedId, setSelectedId] = useState(null);
   const [search, setSearch] = useState("");
   const [season, setSeason] = useState("All");
@@ -3276,6 +3595,7 @@ export function App() {
   const [liveFilteredTotal, setLiveFilteredTotal] = useState(0);
   const [liveFetchedAt, setLiveFetchedAt] = useState("");
   const [liveSources, setLiveSources] = useState([]);
+  const nativeNoticeIdsRef = useRef(new Set());
   const sprintLabels = useMemo(() => createSprintLabels(), []);
   const todayLabel = useMemo(
     () => new Intl.DateTimeFormat("en-US", { weekday: "short", month: "short", day: "numeric" }).format(new Date()),
@@ -3289,6 +3609,7 @@ export function App() {
     setContacts(next.contacts);
     setDocuments(next.documents);
     setGoal(next.goal || blankGoal);
+    setNotificationState(next.notificationState || blankNotificationState);
     cacheWorkspace(serializeWorkspace(next));
   }
 
@@ -3319,7 +3640,7 @@ export function App() {
   }, []);
 
   useEffect(() => {
-    const snapshot = serializeWorkspace({ jobs, tasks, contacts, documents, goal });
+    const snapshot = serializeWorkspace({ jobs, tasks, contacts, documents, goal, notificationState });
     cacheWorkspace(snapshot);
 
     if (!currentUser || !workspaceReady) return undefined;
@@ -3336,7 +3657,7 @@ export function App() {
     }, 650);
 
     return () => window.clearTimeout(timer);
-  }, [jobs, tasks, contacts, documents, goal, currentUser, authToken, workspaceReady]);
+  }, [jobs, tasks, contacts, documents, goal, notificationState, currentUser, authToken, workspaceReady]);
 
   useEffect(() => {
     if (!selectedId && jobs.length > 0) setSelectedId(jobs[0].id);
@@ -3379,8 +3700,49 @@ export function App() {
     .sort((left, right) => new Date(left.deadline) - new Date(right.deadline))
     .slice(0, 4);
   const importedIds = useMemo(() => new Set(jobs.map((job) => job.id)), [jobs]);
-  const notificationCount = tasks.filter((task) => !task.done).length + upcoming.length;
+  const notifications = useMemo(
+    () => buildNotificationFeed({ jobs, tasks, documents, goal }),
+    [jobs, tasks, documents, goal],
+  );
+  const browserNotificationsAvailable = browserPermission !== "unsupported";
   const profile = currentUser?.profile || defaultProfile();
+
+  useEffect(() => {
+    const validIds = new Set(notifications.map((notification) => notification.id));
+    setNotificationState((current) => {
+      const readIds = current.readIds.filter((id) => validIds.has(id));
+      const dismissedIds = current.dismissedIds.filter((id) => validIds.has(id));
+      if (readIds.length === current.readIds.length && dismissedIds.length === current.dismissedIds.length) return current;
+      return normalizeNotificationState({ ...current, readIds, dismissedIds });
+    });
+  }, [notifications]);
+
+  useEffect(() => {
+    if (!notificationState.browserAlerts || browserPermission !== "granted") return;
+    const readSet = new Set(notificationState.readIds);
+    const dismissedSet = new Set(notificationState.dismissedIds);
+    notifications
+      .filter((notification) => notification.native && !readSet.has(notification.id) && !dismissedSet.has(notification.id))
+      .slice(0, 3)
+      .forEach((notification) => {
+        if (nativeNoticeIdsRef.current.has(notification.id)) return;
+        nativeNoticeIdsRef.current.add(notification.id);
+        try {
+          const nativeNotification = new window.Notification(notification.title, {
+            body: notification.body,
+            icon: "/assets/career-track-mark.svg",
+            tag: notification.id,
+          });
+          nativeNotification.onclick = () => {
+            window.focus();
+            handleNotificationOpen(notification);
+            nativeNotification.close();
+          };
+        } catch {
+          // Some mobile browsers expose Notification but still block native alerts.
+        }
+      });
+  }, [notifications, notificationState, browserPermission]);
 
   async function fetchLiveJobs(refresh = false) {
     const params = new URLSearchParams({
@@ -3542,6 +3904,83 @@ export function App() {
     setToast(nextGoal.target ? "Goal saved" : "Goal cleared");
   }
 
+  function setNextNotificationState(updater) {
+    setNotificationState((current) => normalizeNotificationState(typeof updater === "function" ? updater(current) : updater));
+  }
+
+  function mergeNotificationIds(ids = [], nextId = "") {
+    const nextIds = Array.isArray(ids) ? ids : [];
+    const cleanId = safeNotificationId(nextId);
+    if (!cleanId || nextIds.includes(cleanId)) return nextIds;
+    return [cleanId, ...nextIds].slice(0, 600);
+  }
+
+  function markNotificationRead(id) {
+    setNextNotificationState((current) => ({
+      ...current,
+      readIds: mergeNotificationIds(current.readIds, id),
+    }));
+  }
+
+  function markAllNotificationsRead(ids = []) {
+    setNextNotificationState((current) => {
+      const nextIds = [...current.readIds];
+      ids.forEach((id) => {
+        const cleanId = safeNotificationId(id);
+        if (cleanId && !nextIds.includes(cleanId)) nextIds.push(cleanId);
+      });
+      return { ...current, readIds: nextIds.slice(0, 600) };
+    });
+    setToast("Notifications marked read");
+  }
+
+  function dismissNotification(id) {
+    setNextNotificationState((current) => ({
+      ...current,
+      readIds: mergeNotificationIds(current.readIds, id),
+      dismissedIds: mergeNotificationIds(current.dismissedIds, id),
+    }));
+  }
+
+  function restoreDismissedNotifications() {
+    setNextNotificationState((current) => ({ ...current, dismissedIds: [] }));
+    setToast("Dismissed notifications restored");
+  }
+
+  async function toggleBrowserAlerts() {
+    if (!browserNotificationsAvailable) {
+      setToast("Browser alerts are not supported here");
+      return;
+    }
+    if (notificationState.browserAlerts) {
+      setNextNotificationState((current) => ({ ...current, browserAlerts: false }));
+      setToast("Browser alerts off");
+      return;
+    }
+    if (window.Notification.permission === "granted") {
+      setBrowserPermission("granted");
+      setNextNotificationState((current) => ({ ...current, browserAlerts: true }));
+      setToast("Browser alerts on");
+      return;
+    }
+    const permission = await window.Notification.requestPermission();
+    setBrowserPermission(permission);
+    setNextNotificationState((current) => ({ ...current, browserAlerts: permission === "granted" }));
+    setToast(permission === "granted" ? "Browser alerts on" : "Browser alerts were blocked");
+  }
+
+  function handleNotificationOpen(notification) {
+    markNotificationRead(notification.id);
+    const action = notification.action || {};
+    if (action.jobId) {
+      setSelectedId(action.jobId);
+      setActiveView(action.view || "Pipeline");
+    } else if (action.view) {
+      setActiveView(action.view);
+    }
+    setNotificationPanelOpen(false);
+  }
+
   async function handleRegister(draft) {
     try {
       const result = await apiRequest("/api/auth/register", {
@@ -3642,6 +4081,7 @@ export function App() {
     setContacts([]);
     setDocuments([]);
     setGoal({ target: "", deadline: "", label: "" });
+    setNotificationState(blankNotificationState);
     setSelectedId(null);
     setSearch("");
     setSeason("All");
@@ -3866,10 +4306,20 @@ export function App() {
             <IconButton label="Clear workspace data" onClick={clearLocalData}>
               <RefreshCcw size={17} />
             </IconButton>
-            <IconButton label="Notifications">
-              <Bell size={18} />
-              {notificationCount > 0 && <span className="notification-dot">{notificationCount}</span>}
-            </IconButton>
+            <NotificationCenter
+              notifications={notifications}
+              notificationState={notificationState}
+              browserPermission={browserPermission}
+              browserNotificationsAvailable={browserNotificationsAvailable}
+              isOpen={notificationPanelOpen}
+              onToggle={() => setNotificationPanelOpen((open) => !open)}
+              onClose={() => setNotificationPanelOpen(false)}
+              onOpenNotification={handleNotificationOpen}
+              onMarkAllRead={markAllNotificationsRead}
+              onDismiss={dismissNotification}
+              onRestoreDismissed={restoreDismissedNotifications}
+              onToggleBrowserAlerts={toggleBrowserAlerts}
+            />
             <button className="avatar-button" type="button" aria-label="Open account menu" onClick={() => setActiveView("Settings")}>
               <img src={profile.avatar} alt="" />
               {getInitials(profile.name)} <ChevronDown size={13} aria-hidden="true" />

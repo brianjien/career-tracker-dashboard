@@ -77,6 +77,7 @@ EMPTY_WORKSPACE = {
     "contacts": [],
     "documents": [],
     "goal": None,
+    "notificationState": {"readIds": [], "dismissedIds": [], "browserAlerts": False},
 }
 
 app = Flask(__name__, static_folder=None)
@@ -180,12 +181,16 @@ def ensure_schema():
                   contacts_json LONGTEXT NOT NULL,
                   documents_json LONGTEXT NOT NULL,
                   goal_json LONGTEXT NOT NULL,
+                  notifications_json LONGTEXT NOT NULL,
                   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
                   updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
                   CONSTRAINT fk_workspace_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
                 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
                 """
             )
+            cur.execute("SHOW COLUMNS FROM workspace_data LIKE 'notifications_json'")
+            if not cur.fetchone():
+                cur.execute("ALTER TABLE workspace_data ADD COLUMN notifications_json LONGTEXT NULL AFTER goal_json")
     schema_ready = True
 
 
@@ -203,6 +208,7 @@ HTML_TAG_RE = re.compile(r"<[^>]*>")
 EMAIL_RE = re.compile(r"^[^@\s<>]{1,64}@[^@\s<>]{1,180}\.[^@\s<>]{2,20}$")
 DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 ID_RE = re.compile(r"[^a-zA-Z0-9_.:-]+")
+NOTIFICATION_ID_RE = re.compile(r"^[a-zA-Z0-9_.:@|/-]{1,180}$")
 
 
 def clean_text(value="", limit=MAX_TEXT_LENGTH, fallback=""):
@@ -438,6 +444,28 @@ def sanitize_goal(goal=None):
     }
 
 
+def clean_notification_id_list(value=None):
+    if not isinstance(value, list):
+        return []
+    clean_items = []
+    for item in value[:600]:
+        text = CONTROL_CHAR_RE.sub("", str(item or "").strip())[:180]
+        if ".." in text or text.startswith("/"):
+            continue
+        if text and NOTIFICATION_ID_RE.match(text) and text not in clean_items:
+            clean_items.append(text)
+    return clean_items
+
+
+def sanitize_notification_state(state=None):
+    state = state if isinstance(state, dict) else {}
+    return {
+        "readIds": clean_notification_id_list(state.get("readIds")),
+        "dismissedIds": clean_notification_id_list(state.get("dismissedIds")),
+        "browserAlerts": clean_bool(state.get("browserAlerts")),
+    }
+
+
 def normalize_workspace(value=None):
     value = value if isinstance(value, dict) else {}
     return {
@@ -449,6 +477,7 @@ def normalize_workspace(value=None):
             for item in (value.get("documents") if isinstance(value.get("documents"), list) else [])[: WORKSPACE_LIMITS["documents"]]
         ],
         "goal": sanitize_goal(value.get("goal")) if isinstance(value.get("goal"), dict) else None,
+        "notificationState": sanitize_notification_state(value.get("notificationState")),
     }
 
 
@@ -512,6 +541,7 @@ def get_workspace(user_id):
             "contacts": parse_json(row.get("contacts_json"), []),
             "documents": parse_json(row.get("documents_json"), []),
             "goal": parse_json(row.get("goal_json"), None),
+            "notificationState": parse_json(row.get("notifications_json"), {}),
         }
     )
 
@@ -523,14 +553,15 @@ def save_workspace(user_id, workspace):
         with conn.cursor() as cur:
             cur.execute(
                 """
-                INSERT INTO workspace_data (user_id, jobs_json, tasks_json, contacts_json, documents_json, goal_json)
-                VALUES (%s, %s, %s, %s, %s, %s)
+                INSERT INTO workspace_data (user_id, jobs_json, tasks_json, contacts_json, documents_json, goal_json, notifications_json)
+                VALUES (%s, %s, %s, %s, %s, %s, %s)
                 ON DUPLICATE KEY UPDATE
                   jobs_json = VALUES(jobs_json),
                   tasks_json = VALUES(tasks_json),
                   contacts_json = VALUES(contacts_json),
                   documents_json = VALUES(documents_json),
-                  goal_json = VALUES(goal_json)
+                  goal_json = VALUES(goal_json),
+                  notifications_json = VALUES(notifications_json)
                 """,
                 (
                     user_id,
@@ -539,6 +570,7 @@ def save_workspace(user_id, workspace):
                     json.dumps(next_workspace["contacts"]),
                     json.dumps(next_workspace["documents"]),
                     json.dumps(next_workspace["goal"]),
+                    json.dumps(next_workspace["notificationState"]),
                 ),
             )
     return next_workspace
