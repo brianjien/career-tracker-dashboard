@@ -1,6 +1,7 @@
 import hashlib
 import hmac
 import json
+import mimetypes
 import os
 import re
 import secrets
@@ -9,22 +10,31 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from html import unescape
 from pathlib import Path
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, quote, urlparse
 
 import pymysql
 import requests
 from flask import Flask, jsonify, make_response, redirect, request, send_from_directory
 from google.auth.transport import requests as google_requests
 from google.oauth2 import id_token
+from werkzeug.utils import secure_filename
+
+try:
+    import boto3
+    from botocore.config import Config as BotoConfig
+except Exception:
+    boto3 = None
+    BotoConfig = None
 
 
 APP_ROOT = Path(__file__).resolve().parent
 DIST_DIR = APP_ROOT / "dist"
-MAX_BODY_BYTES = 3_000_000
+MAX_BODY_BYTES = 12_000_000
 MAX_TEXT_LENGTH = 2_000
 MAX_FIELD_LENGTH = 512
 MAX_NOTE_LENGTH = 8_000
 MAX_DATA_URL_BYTES = 720_000
+MAX_UPLOAD_BYTES = 10_000_000
 GOOGLE_CLIENT_ID = os.environ.get(
     "GOOGLE_CLIENT_ID",
     os.environ.get("VITE_GOOGLE_CLIENT_ID", "48292852686-95nqueviim5bflqo4upq3bta29bkamej.apps.googleusercontent.com"),
@@ -47,6 +57,18 @@ SAFE_DATA_MIME_TYPES = {
     "data:text/markdown",
     "data:text/plain",
     "data:application/json",
+}
+SAFE_UPLOAD_MIME_TYPES = {
+    "application/json",
+    "application/msword",
+    "application/pdf",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "image/jpeg",
+    "image/png",
+    "image/webp",
+    "text/csv",
+    "text/markdown",
+    "text/plain",
 }
 
 EMPTY_WORKSPACE = {
@@ -253,6 +275,31 @@ def clean_url(value="", allow_data=False, allow_local=False):
     return raw
 
 
+def clean_file_proxy_url(value=""):
+    raw = CONTROL_CHAR_RE.sub("", str(value or "").strip())
+    if not raw:
+        return ""
+    if raw.startswith("/api/documents/file?") and len(raw) <= 2048:
+        try:
+            parsed = urlparse(raw)
+            query = parse_qs(parsed.query)
+            key = clean_storage_key((query.get("key") or [""])[0])
+        except Exception:
+            return ""
+        if parsed.path == "/api/documents/file" and key:
+            return document_file_url(key)
+    return ""
+
+
+def clean_storage_key(value=""):
+    key = CONTROL_CHAR_RE.sub("", str(value or "").strip())
+    if not key or len(key) > 512 or ".." in key or key.startswith("/"):
+        return ""
+    if not re.match(r"^users/[a-zA-Z0-9_-]+/documents/[a-zA-Z0-9_.@+=,/-]+$", key):
+        return ""
+    return key
+
+
 def clean_tags(value):
     if not isinstance(value, list):
         return []
@@ -358,6 +405,8 @@ def sanitize_document(document=None):
     file_data = clean_url(document.get("fileData"), allow_data=True)
     if file_data and file_type.lower() == "image/svg+xml":
         file_data = ""
+    file_key = clean_storage_key(document.get("fileKey"))
+    file_url = clean_file_proxy_url(document.get("fileUrl"))
     return {
         "id": clean_identifier(document.get("id"), f"document-{uuid.uuid4()}"),
         "name": clean_text(document.get("name"), 160, "Untitled document"),
@@ -370,8 +419,11 @@ def sanitize_document(document=None):
         "notes": clean_text(document.get("notes"), 1_500),
         "fileName": clean_text(document.get("fileName"), 180),
         "fileType": file_type,
-        "fileSize": clean_int(document.get("fileSize"), 0, MAX_DATA_URL_BYTES, 0),
-        "fileData": file_data,
+        "fileSize": clean_int(document.get("fileSize"), 0, MAX_UPLOAD_BYTES, 0),
+        "fileData": "" if file_key else file_data,
+        "fileKey": file_key,
+        "fileUrl": file_url,
+        "storage": "s3" if file_key else clean_text(document.get("storage"), 20),
         "updated": clean_text(document.get("updated"), 80),
     }
 
@@ -490,6 +542,74 @@ def save_workspace(user_id, workspace):
                 ),
             )
     return next_workspace
+
+
+def storage_bucket():
+    return env("S3_BUCKET", env("S3_BUCKET_NAME"))
+
+
+def storage_region():
+    return env("S3_REGION", env("AWS_REGION", "us-east-1"))
+
+
+def storage_endpoint():
+    return env("S3_ENDPOINT_URL", env("AWS_S3_ENDPOINT_URL"))
+
+
+def storage_access_key():
+    return env("S3_ACCESS_KEY_ID", env("AWS_ACCESS_KEY_ID"))
+
+
+def storage_secret_key():
+    return env("S3_SECRET_ACCESS_KEY", env("AWS_SECRET_ACCESS_KEY"))
+
+
+def storage_configured():
+    return bool(storage_bucket() and storage_access_key() and storage_secret_key())
+
+
+def storage_client():
+    if boto3 is None or BotoConfig is None:
+        raise RuntimeError("S3 client dependency is not installed.")
+    endpoint = storage_endpoint() or None
+    config_kwargs = {"signature_version": "s3v4"}
+    if endpoint:
+        config_kwargs["s3"] = {"addressing_style": env("S3_ADDRESSING_STYLE", "path")}
+    return boto3.client(
+        "s3",
+        endpoint_url=endpoint,
+        region_name=storage_region(),
+        aws_access_key_id=storage_access_key(),
+        aws_secret_access_key=storage_secret_key(),
+        config=BotoConfig(**config_kwargs),
+    )
+
+
+def safe_upload_filename(filename="document"):
+    cleaned = secure_filename(clean_text(filename, 180, "document"))
+    return cleaned or f"document-{uuid.uuid4()}"
+
+
+def detect_file_type(file_storage, filename):
+    guessed = mimetypes.guess_type(filename)[0]
+    detected = clean_text(file_storage.mimetype, 100)
+    if detected in {"application/octet-stream", "binary/octet-stream"}:
+        return guessed or detected
+    return detected or guessed or "application/octet-stream"
+
+
+def document_file_key(user_id, filename):
+    return f"users/{clean_identifier(user_id)}/documents/{uuid.uuid4().hex}-{safe_upload_filename(filename)}"
+
+
+def document_file_url(key):
+    return f"/api/documents/file?key={quote(key, safe='')}"
+
+
+def require_document_key_for_user(user, key):
+    clean_key = clean_storage_key(key)
+    prefix = f"users/{clean_identifier(user['id'])}/documents/"
+    return clean_key if clean_key.startswith(prefix) else ""
 
 
 def auth_token():
@@ -1301,6 +1421,82 @@ def workspace_put():
         return json_response({"error": "Invalid JSON body."}, 400)
     submitted_workspace = body.get("workspace") if isinstance(body.get("workspace"), dict) else body
     return json_response({"workspace": save_workspace(user["id"], submitted_workspace)})
+
+
+@app.post("/api/documents/upload")
+def document_upload():
+    user, error = require_user()
+    if error:
+        return error
+    if not storage_configured():
+        return json_response({"error": "S3 storage is not configured."}, 503)
+    uploaded = request.files.get("file")
+    if not uploaded or not uploaded.filename:
+        return json_response({"error": "Attach a file before uploading."}, 400)
+
+    filename = safe_upload_filename(uploaded.filename)
+    content_type = detect_file_type(uploaded, filename)
+    if content_type not in SAFE_UPLOAD_MIME_TYPES:
+        return json_response({"error": "This file type is not supported for secure storage."}, 415)
+
+    data = uploaded.read(MAX_UPLOAD_BYTES + 1)
+    if len(data) > MAX_UPLOAD_BYTES:
+        return json_response({"error": "File is too large. Use a file under 10 MB."}, 413)
+    if not data:
+        return json_response({"error": "File is empty."}, 400)
+
+    key = document_file_key(user["id"], filename)
+    try:
+        storage_client().put_object(
+            Bucket=storage_bucket(),
+            Key=key,
+            Body=data,
+            ContentType=content_type,
+            ContentDisposition=f"inline; filename*=UTF-8''{quote(filename)}",
+        )
+    except Exception as exc:
+        print(f"s3_upload_failed: {type(exc).__name__}: {exc}", file=sys.stderr, flush=True)
+        return json_response({"error": "File could not upload to storage."}, 502)
+
+    return json_response(
+        {
+            "fileName": filename,
+            "fileType": content_type,
+            "fileSize": len(data),
+            "fileKey": key,
+            "fileUrl": document_file_url(key),
+            "storage": "s3",
+        },
+        201,
+    )
+
+
+@app.get("/api/documents/file")
+def document_file():
+    user, error = require_user()
+    if error:
+        return error
+    key = require_document_key_for_user(user, request.args.get("key", ""))
+    if not key:
+        return json_response({"error": "File key is invalid."}, 404)
+    if not storage_configured():
+        return json_response({"error": "S3 storage is not configured."}, 503)
+    try:
+        obj = storage_client().get_object(Bucket=storage_bucket(), Key=key)
+        body = obj["Body"].read()
+    except Exception as exc:
+        print(f"s3_download_failed: {type(exc).__name__}: {exc}", file=sys.stderr, flush=True)
+        return json_response({"error": "File could not be loaded from storage."}, 404)
+
+    stored_name = key.rsplit("/", 1)[-1]
+    filename = safe_upload_filename(stored_name.split("-", 1)[-1] or "document")
+    content_type = obj.get("ContentType") or mimetypes.guess_type(filename)[0] or "application/octet-stream"
+    disposition = "attachment" if request.args.get("download") == "1" else "inline"
+    response = make_response(body, 200)
+    response.headers["content-type"] = content_type
+    response.headers["content-disposition"] = f"{disposition}; filename*=UTF-8''{quote(filename)}"
+    response.headers["cache-control"] = "private, max-age=300"
+    return response
 
 
 @app.route("/", defaults={"path": ""})

@@ -9,8 +9,9 @@ Modern green SaaS dashboard for tracking 2026 fall internships, 2027 roles, and 
 - Live job feed from public sources through `/api/jobs`.
 - Filters for 2026 Fall, 2027, New Grad, and remote mode.
 - Goal setting and pipeline progress tracking.
+- Private S3-compatible document upload with in-app preview for PDF, image, text, CSV, Markdown, and JSON files.
 - Mobile-responsive layout.
-- Wasmer Edge deployment config using a Node-compatible backend runtime.
+- Wasmer deployment config using the Flask backend in `app.py`.
 - Wasmer database capability configured for the `fr-pari1` region.
 
 ## Run Locally
@@ -41,3 +42,14 @@ npm run wasmer:deploy
 If your Wasmer namespace is not `brianjien`, update `wasmer.toml` and `app.yaml`.
 
 Database credentials should be configured as Wasmer secrets or provided by the Wasmer database capability. Do not commit real `DB_PASSWORD` values.
+
+For document uploads, configure these Wasmer secrets:
+
+```bash
+S3_ENDPOINT_URL
+S3_REGION
+S3_BUCKET
+S3_ACCESS_KEY_ID
+S3_SECRET_ACCESS_KEY
+S3_ADDRESSING_STYLE=path
+```

@@ -164,7 +164,7 @@ const emptyStoredData = {
 const blankGoal = { target: "", deadline: "", label: "" };
 const documentTypeOptions = ["Resume", "Cover Letter", "Portfolio", "Transcript", "Referral Note", "Template", "Other"];
 const documentStatusOptions = ["Draft", "Needs Review", "Ready", "Submitted", "Archived"];
-const embeddedDocumentLimit = 520_000;
+const uploadDocumentLimit = 10_000_000;
 const sankeyExportStyles = `
   .sankey-title { fill: #124166; font: 850 25px Inter, Arial, sans-serif; }
   .sankey-subtitle { fill: #5f6d65; font: 720 13px Inter, Arial, sans-serif; }
@@ -192,6 +192,9 @@ const blankDocumentDraft = {
   fileType: "",
   fileSize: 0,
   fileData: "",
+  fileKey: "",
+  fileUrl: "",
+  storage: "",
 };
 
 function defaultProfile(overrides = {}) {
@@ -226,6 +229,9 @@ function normalizeDocument(document = {}) {
     fileType: document.fileType || "",
     fileSize: Number(document.fileSize || 0),
     fileData: document.fileData || "",
+    fileKey: document.fileKey || "",
+    fileUrl: document.fileUrl || "",
+    storage: document.storage || "",
     updated: document.updated || new Date().toISOString(),
   };
 }
@@ -254,6 +260,28 @@ function isOpenableUrl(value = "") {
   return Boolean(safeExternalUrl(value));
 }
 
+function safeDocumentFileUrl(value = "") {
+  const raw = String(value || "").trim();
+  if (raw.startsWith("/api/documents/file?")) {
+    try {
+      const parsed = new URL(raw, window.location.origin);
+      const key = parsed.searchParams.get("key") || "";
+      if (parsed.origin !== window.location.origin || parsed.pathname !== "/api/documents/file") return "";
+      if (!/^users\/[a-zA-Z0-9_-]+\/documents\/[a-zA-Z0-9_.@+=,/-]+$/.test(key)) return "";
+      return `/api/documents/file?key=${encodeURIComponent(key)}`;
+    } catch {
+      return "";
+    }
+  }
+  return "";
+}
+
+function getDocumentDownloadUrl(document = {}) {
+  const fileUrl = safeDocumentFileUrl(document.fileUrl);
+  if (!fileUrl) return "";
+  return fileUrl.startsWith("/api/documents/file?") ? `${fileUrl}&download=1` : fileUrl;
+}
+
 function getEmbeddableDocumentUrl(value = "") {
   const rawUrl = safeExternalUrl(value);
   if (!rawUrl) return "";
@@ -278,9 +306,10 @@ function getEmbeddableDocumentUrl(value = "") {
 function getDocumentPreviewMode(document = {}) {
   const fileType = String(document.fileType || "").toLowerCase();
   const fileName = String(document.fileName || "").toLowerCase();
+  const hasStoredFile = Boolean(document.fileData || safeDocumentFileUrl(document.fileUrl));
   const safeTextPreview =
     ["text/plain", "text/csv", "text/markdown", "application/json"].includes(fileType) || /\.(csv|json|md|txt)$/i.test(fileName);
-  if (document.fileData) {
+  if (hasStoredFile) {
     if (fileType.startsWith("image/") && fileType !== "image/svg+xml") return "image";
     if (fileType === "application/pdf" || fileName.endsWith(".pdf")) return "frame";
     if (safeTextPreview) return "frame";
@@ -292,6 +321,8 @@ function getDocumentPreviewMode(document = {}) {
 
 function getDocumentPreviewSource(document = {}) {
   if (document.fileData) return document.fileData;
+  const fileUrl = safeDocumentFileUrl(document.fileUrl);
+  if (fileUrl) return fileUrl;
   return getEmbeddableDocumentUrl(document.url);
 }
 
@@ -386,6 +417,26 @@ async function apiRequest(path, { method = "GET", body, token = readAuthToken() 
 
   if (!response.ok) {
     throw new Error(payload.error || `Request failed with ${response.status}`);
+  }
+  return payload;
+}
+
+async function uploadDocumentFile(file, token = readAuthToken()) {
+  const formData = new FormData();
+  formData.append("file", file);
+  const headers = {};
+  if (token) headers.Authorization = `Bearer ${token}`;
+
+  const response = await fetch("/api/documents/upload", {
+    method: "POST",
+    headers,
+    credentials: "same-origin",
+    body: formData,
+  });
+  const contentType = response.headers.get("content-type") || "";
+  const payload = contentType.includes("application/json") ? await response.json() : {};
+  if (!response.ok) {
+    throw new Error(payload.error || `Upload failed with ${response.status}`);
   }
   return payload;
 }
@@ -2536,6 +2587,7 @@ function TasksView({ tasks, jobs, onToggleTask, onAddTask }) {
 function DocumentsView({
   documents,
   jobs,
+  authToken,
   onAddDocument,
   onUpdateDocument,
   onDeleteDocument,
@@ -2550,6 +2602,8 @@ function DocumentsView({
   const [typeFilter, setTypeFilter] = useState("All");
   const [fileNotice, setFileNotice] = useState("");
   const [previewDocument, setPreviewDocument] = useState(null);
+  const [selectedFile, setSelectedFile] = useState(null);
+  const [uploading, setUploading] = useState(false);
 
   const targetOptions = useMemo(() => {
     const seen = new Set(["General"]);
@@ -2576,7 +2630,7 @@ function DocumentsView({
 
   const readyCount = documents.filter((document) => document.status === "Ready" || document.status === "Submitted").length;
   const reviewCount = documents.filter((document) => document.status === "Needs Review").length;
-  const linkedCount = documents.filter((document) => document.url || document.fileData).length;
+  const linkedCount = documents.filter((document) => document.url || document.fileData || document.fileUrl).length;
   const sortedDocumentUpdates = documents
     .map((document) => document.updated)
     .filter(Boolean)
@@ -2600,6 +2654,7 @@ function DocumentsView({
     setDraft(blankDocumentDraft);
     setEditingId("");
     setFileNotice("");
+    setSelectedFile(null);
     if (fileInputRef.current) fileInputRef.current.value = "";
   }
 
@@ -2611,12 +2666,23 @@ function DocumentsView({
     });
     setEditingId(document.id);
     setFileNotice(document.fileName ? `${document.fileName}${document.fileSize ? ` · ${formatBytes(document.fileSize)}` : ""}` : "");
+    setSelectedFile(null);
     if (fileInputRef.current) fileInputRef.current.value = "";
   }
 
   function clearAttachedFile() {
-    setDraft((current) => ({ ...current, fileName: "", fileType: "", fileSize: 0, fileData: "" }));
+    setDraft((current) => ({
+      ...current,
+      fileName: "",
+      fileType: "",
+      fileSize: 0,
+      fileData: "",
+      fileKey: "",
+      fileUrl: "",
+      storage: "",
+    }));
     setFileNotice("");
+    setSelectedFile(null);
     if (fileInputRef.current) fileInputRef.current.value = "";
   }
 
@@ -2628,44 +2694,63 @@ function DocumentsView({
       fileType: file.type,
       fileSize: file.size,
     };
-    if (file.size > embeddedDocumentLimit) {
-      setDraft((current) => ({ ...current, ...fileMeta, fileData: "" }));
-      setFileNotice(`${file.name} · ${formatBytes(file.size)} · link required`);
+    if (file.size > uploadDocumentLimit) {
+      setDraft((current) => ({
+        ...current,
+        ...fileMeta,
+        fileData: "",
+        fileKey: "",
+        fileUrl: "",
+        storage: "",
+      }));
+      setSelectedFile(null);
+      setFileNotice(`${file.name} is over 10 MB`);
+      onToast("Use a file under 10 MB");
       return;
     }
-    const reader = new FileReader();
-    reader.onload = () => {
-      setDraft((current) => ({ ...current, ...fileMeta, fileData: String(reader.result || "") }));
-      setFileNotice(`${file.name} · ${formatBytes(file.size)} attached`);
-    };
-    reader.onerror = () => {
-      setDraft((current) => ({ ...current, ...fileMeta, fileData: "" }));
-      setFileNotice(`${file.name} could not attach`);
-    };
-    reader.readAsDataURL(file);
+    setSelectedFile(file);
+    setDraft((current) => ({
+      ...current,
+      ...fileMeta,
+      fileData: "",
+      fileKey: "",
+      fileUrl: "",
+      storage: "",
+    }));
+    setFileNotice(`${file.name} · ${formatBytes(file.size)} ready to upload`);
   }
 
-  function submit(event) {
+  async function submit(event) {
     event.preventDefault();
-    if (!draft.name.trim()) return;
-    const nextDocument = normalizeDocument({
-      ...draft,
-      id: editingId || `document-${Date.now()}`,
-      name: draft.name.trim(),
-      url: safeExternalUrl(draft.url),
-      target: draft.target.trim() || "General",
-      owner: draft.owner.trim(),
-      notes: draft.notes.trim(),
-      version: draft.version.trim() || "v1",
-      status: draft.status,
-      updated: new Date().toISOString(),
-    });
-    if (editingId) {
-      onUpdateDocument(editingId, nextDocument);
-    } else {
-      onAddDocument(nextDocument);
+    if (!draft.name.trim() || uploading) return;
+    setUploading(true);
+    try {
+      const uploadedMeta = selectedFile ? await uploadDocumentFile(selectedFile, authToken) : {};
+      const nextDocument = normalizeDocument({
+        ...draft,
+        ...uploadedMeta,
+        id: editingId || `document-${Date.now()}`,
+        name: draft.name.trim(),
+        url: safeExternalUrl(draft.url),
+        target: draft.target.trim() || "General",
+        owner: draft.owner.trim(),
+        notes: draft.notes.trim(),
+        version: draft.version.trim() || "v1",
+        status: draft.status,
+        fileData: uploadedMeta.fileUrl ? "" : draft.fileData,
+        updated: new Date().toISOString(),
+      });
+      if (editingId) {
+        onUpdateDocument(editingId, nextDocument);
+      } else {
+        onAddDocument(nextDocument);
+      }
+      resetDraft();
+    } catch (error) {
+      onToast(error instanceof Error ? error.message : "File could not upload");
+    } finally {
+      setUploading(false);
     }
-    resetDraft();
   }
 
   async function copyLink(document) {
@@ -2680,7 +2765,7 @@ function DocumentsView({
   }
 
   function openPreview(document) {
-    if (!document.fileData && !isOpenableUrl(document.url)) {
+    if (!document.fileData && !safeDocumentFileUrl(document.fileUrl) && !isOpenableUrl(document.url)) {
       onToast("Add a file or link before previewing");
       return;
     }
@@ -2775,13 +2860,13 @@ function DocumentsView({
           </label>
           <div className="document-form-actions">
             {editingId && (
-              <button className="secondary-button" type="button" onClick={resetDraft}>
+              <button className="secondary-button" type="button" onClick={resetDraft} disabled={uploading}>
                 Cancel
               </button>
             )}
-            <button className="primary-button" type="submit">
+            <button className="primary-button" type="submit" disabled={uploading}>
               <Plus size={16} aria-hidden="true" />
-              {editingId ? "Save Changes" : "Add Asset"}
+              {uploading ? "Uploading..." : editingId ? "Save Changes" : "Add Asset"}
             </button>
           </div>
         </form>
@@ -2811,8 +2896,10 @@ function DocumentsView({
           <div className="document-grid">
             {filteredDocuments.map((doc) => {
               const documentUrl = safeExternalUrl(doc.url);
+              const fileUrl = safeDocumentFileUrl(doc.fileUrl);
+              const downloadUrl = getDocumentDownloadUrl(doc);
               const canOpenLink = Boolean(documentUrl);
-              const canPreview = Boolean(doc.fileData || canOpenLink);
+              const canPreview = Boolean(doc.fileData || fileUrl || canOpenLink);
               return (
                 <article key={doc.id} className="document-card">
                   <div className="document-card-head">
@@ -2861,6 +2948,10 @@ function DocumentsView({
                     {canOpenLink ? (
                       <a className="secondary-button" href={documentUrl} target="_blank" rel="noreferrer">
                         Open <ArrowUpRight size={14} aria-hidden="true" />
+                      </a>
+                    ) : downloadUrl ? (
+                      <a className="secondary-button" href={downloadUrl} download={doc.fileName || `${doc.name}.txt`}>
+                        Download <Download size={14} aria-hidden="true" />
                       </a>
                     ) : doc.fileData ? (
                       <a className="secondary-button" href={doc.fileData} download={doc.fileName || `${doc.name}.txt`}>
@@ -2913,8 +3004,12 @@ function DocumentsView({
                 </small>
               </span>
               <div className="document-preview-actions">
-                {previewDocument.fileData && (
-                  <a className="secondary-button" href={previewDocument.fileData} download={previewDocument.fileName || `${previewDocument.name}.txt`}>
+                {(previewDocument.fileData || getDocumentDownloadUrl(previewDocument)) && (
+                  <a
+                    className="secondary-button"
+                    href={previewDocument.fileData || getDocumentDownloadUrl(previewDocument)}
+                    download={previewDocument.fileName || `${previewDocument.name}.txt`}
+                  >
                     <Download size={14} aria-hidden="true" />
                     Download
                   </a>
@@ -3639,6 +3734,7 @@ export function App() {
         <DocumentsView
           documents={documents}
           jobs={jobs}
+          authToken={authToken}
           onAddDocument={addDocument}
           onUpdateDocument={updateDocument}
           onDeleteDocument={deleteDocument}

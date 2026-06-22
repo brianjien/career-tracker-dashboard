@@ -42,6 +42,28 @@ The backend also accepts `DB_USER` as an alias for `DB_USERNAME`.
 
 Keep real database values out of GitHub. For local work, copy `.env.example` to an ignored env file and fill in the values locally.
 
+## Document Storage
+
+Uploaded resume and application files are stored in an S3-compatible bucket and served through authenticated Flask proxy routes:
+
+```bash
+POST /api/documents/upload
+GET /api/documents/file?key=...
+```
+
+For Supabase Storage S3, create a private bucket, enable the S3 protocol connection, then add these Wasmer secrets:
+
+```bash
+S3_ENDPOINT_URL=https://pynqcxlpzjgxhgshgpwi.storage.supabase.co/storage/v1/s3
+S3_REGION=us-west-2
+S3_BUCKET=<your private bucket name>
+S3_ACCESS_KEY_ID=<Supabase S3 access key id>
+S3_SECRET_ACCESS_KEY=<Supabase S3 secret access key>
+S3_ADDRESSING_STYLE=path
+```
+
+Keep the bucket private. The browser never receives the S3 key; it only sees same-origin `/api/documents/file` URLs. PDF, image, text, CSV, Markdown, and JSON files can preview in the app. Word documents are stored securely and can be downloaded.
+
 ## Google Sign-In
 
 The Google OAuth client must include the exact production callback:
