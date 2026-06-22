@@ -1019,35 +1019,79 @@ function NotificationCenter({
   );
 }
 
-function DocumentPreviewPanel({ document }) {
+function DocumentPreviewPanel({ document, authToken }) {
   const mode = getDocumentPreviewMode(document);
   const rawSource = getDocumentPreviewSource(document);
+  const fileUrl = safeDocumentFileUrl(document.fileUrl);
   const [blobSource, setBlobSource] = useState("");
-  const shouldUseBlob = Boolean(document.fileData && (mode === "frame" || mode === "image"));
+  const [previewState, setPreviewState] = useState("idle");
+  const [previewError, setPreviewError] = useState("");
+  const shouldUseBlob = Boolean((document.fileData || fileUrl) && (mode === "frame" || mode === "image"));
 
   useEffect(() => {
     setBlobSource("");
+    setPreviewError("");
     if (!shouldUseBlob) return undefined;
     let nextSource = "";
-    try {
-      nextSource = dataUrlToBlobUrl(document.fileData);
-      setBlobSource(nextSource);
-    } catch {
-      setBlobSource("");
+    let cancelled = false;
+
+    async function prepareBlobPreview() {
+      setPreviewState("loading");
+      try {
+        if (document.fileData) {
+          nextSource = dataUrlToBlobUrl(document.fileData);
+        } else {
+          const headers = {};
+          const token = authToken || readAuthToken();
+          if (token) headers.Authorization = `Bearer ${token}`;
+          const response = await fetch(fileUrl, {
+            headers,
+            credentials: "same-origin",
+          });
+          if (!response.ok) throw new Error(`Preview failed with ${response.status}`);
+          const blob = await response.blob();
+          nextSource = URL.createObjectURL(blob);
+        }
+        if (cancelled) {
+          if (nextSource) URL.revokeObjectURL(nextSource);
+          return;
+        }
+        setBlobSource(nextSource);
+        setPreviewState("ready");
+      } catch {
+        if (!cancelled) {
+          setBlobSource("");
+          setPreviewState("error");
+          setPreviewError("Preview could not load in this browser. Download the original file to view it.");
+        }
+      }
     }
+
+    prepareBlobPreview();
     return () => {
+      cancelled = true;
       if (nextSource) URL.revokeObjectURL(nextSource);
     };
-  }, [document.fileData, shouldUseBlob]);
+  }, [authToken, document.fileData, fileUrl, shouldUseBlob]);
 
   const source = shouldUseBlob ? blobSource : rawSource;
+
+  if (shouldUseBlob && previewState === "error") {
+    return (
+      <div className="document-preview-empty">
+        <FileText size={32} aria-hidden="true" />
+        <strong>Preview blocked</strong>
+        <span>{previewError}</span>
+      </div>
+    );
+  }
 
   if (shouldUseBlob && !source) {
     return (
       <div className="document-preview-empty">
         <FileText size={32} aria-hidden="true" />
         <strong>Preparing preview</strong>
-        <span>If this file does not render, use Download to open the original file.</span>
+        <span>Loading the protected file through your signed-in session.</span>
       </div>
     );
   }
@@ -1061,14 +1105,20 @@ function DocumentPreviewPanel({ document }) {
   }
 
   if ((mode === "frame" || mode === "link") && source) {
+    const frameProps =
+      mode === "link"
+        ? {
+            sandbox: "allow-scripts allow-same-origin allow-popups allow-forms",
+            referrerPolicy: "no-referrer",
+          }
+        : {};
     return (
       <>
         <iframe
           className="document-preview-frame"
           src={source}
           title={`${document.name} preview`}
-          referrerPolicy="no-referrer"
-          sandbox="allow-scripts allow-same-origin allow-popups"
+          {...frameProps}
         />
         {mode === "link" && (
           <p className="document-preview-note">
@@ -3387,7 +3437,7 @@ function DocumentsView({
                 </button>
               </div>
             </div>
-            <DocumentPreviewPanel document={previewDocument} />
+            <DocumentPreviewPanel document={previewDocument} authToken={authToken} />
           </div>
         </div>
       )}
