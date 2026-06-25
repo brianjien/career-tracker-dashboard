@@ -1,74 +1,33 @@
+# Forward Loop Brand QA
+
+- Source visual truth: `/Users/brianjien/.codex/generated_images/019ecdd1-90af-73f1-8d06-762f4f4efabc/ig_07ba644270d2e437016a3da5f9fac08196bd80e7397ad26cde.png`
+- Implementation screenshots:
+  - `/Users/brianjien/Downloads/Intern/internship-tracker/qa-artifacts/brand-desktop.png`
+  - `/Users/brianjien/Downloads/Intern/internship-tracker/qa-artifacts/brand-mobile.png`
+  - `/Users/brianjien/Downloads/Intern/internship-tracker/qa-artifacts/brand-mark-browser.png`
+- Comparison evidence: `/Users/brianjien/Downloads/Intern/internship-tracker/qa-artifacts/brand-mark-comparison.png`
+- Viewports: 1440 x 1024 desktop, 390 x 844 mobile, 800 x 600 focused mark
+- State: unauthenticated registration screen and direct SVG rendering
+
 **Findings**
-- No actionable P0/P1/P2 issues remain.
 
-**Source Visual Truth Path**
-- `/Users/brianjien/.codex/generated_images/019ecdd1-90af-73f1-8d06-762f4f4efabc/ig_08e691e88d990f68016a309a42e7f4819495e098287978cd8a.png`
+- No actionable P0/P1/P2 findings.
+- Fonts and typography: the existing Career Tracker product type remains unchanged and the lockup hierarchy matches the selected concept.
+- Spacing and layout rhythm: the 58px desktop and 48px mobile brand tiles align cleanly with the lockup copy. Neither viewport has horizontal overflow.
+- Colors and visual tokens: the generated gradient was intentionally normalized to the existing product emerald `#08783F` for consistent reproduction and contrast.
+- Image quality and asset fidelity: the final SVG preserves the selected three-stage Forward Loop silhouette, contains one vector path, and contains no circle elements. The Apple icon is a dedicated 180px PNG and the social card is 1200 x 630.
+- Copy and content: `Career Tracker` and `Internship + New Grad` remain consistent across login and sidebar surfaces.
 
-**Implementation Screenshot Path**
-- `/Users/brianjien/Downloads/Intern/internship-tracker/qa-artifacts/desktop-final-1488.png`
+**Patches Made**
 
-**Viewport**
-- Desktop: 1488 x 1058.
-- Mobile spot check: 390 x 844.
-
-**State**
-- Default dashboard state, All seasons selected, NVIDIA detail panel selected, right rail visible.
-
-**Full-View Comparison Evidence**
-- `/Users/brianjien/Downloads/Intern/internship-tracker/qa-artifacts/source-vs-implementation.png`
-
-**Focused Region Comparison Evidence**
-- Separate focused crops were not needed: the side-by-side comparison keeps the sidebar, topbar, metric row, Kanban columns, right rail, and detail panel legible at the comparison scale.
-- Mobile responsive evidence: `/Users/brianjien/Downloads/Intern/internship-tracker/qa-artifacts/mobile-390.png`
-
-**Required Fidelity Surfaces**
-- Fonts and typography: system sans stack matches the reference's modern SaaS tone; hierarchy, weights, line height, and truncation are readable across dashboard cards, nav, rail, and detail panel. Letter spacing remains 0.
-- Spacing and layout rhythm: the implementation follows the source's left navigation, compact topbar, KPI row, five-column board, right rail, and bottom detail panel. Kanban columns use internal vertical scrolling so the detail panel is visible in the first desktop viewport.
-- Colors and visual tokens: green is the primary theme, balanced with neutral surfaces plus blue, purple, and amber semantic accents for stages and deadlines. Contrast and selected states are readable.
-- Image quality and asset fidelity: the app mark and profile presets are neutral career-tracker assets placed in the sidebar/profile areas. Company icons use icon-library assets, not custom CSS art.
-- Copy and content: dashboard copy is neutral and avoids personal or institution-specific identifiers. Pipeline, tasks, documents, and contacts start empty and grow only from live imports or user-created records.
-
-**Patches Made Since Previous QA Pass**
-- Moved the detail panel into the main board column so it appears beneath the Kanban board while the right rail continues alongside it.
-- Constrained Kanban columns to desktop-height internal scrolling and removed horizontal scrollbar artifacts.
-- Replaced unstable lucide icon imports with stable `react-icons/fi` components.
-- Hydrated persisted task icons from code instead of trusting localStorage, preventing blank-page reloads from stale icon objects.
-
-**Interaction Checks**
-- Search filters the board to NVIDIA and hides unrelated cards.
-- Add Job modal opens and closes.
-- Task checkbox can be checked.
-- Fresh navigation after fixes produced no console errors.
-
-**Live Data And Feature Update**
-- Added a local Vite API at `/api/jobs` that fetches public internship/job feeds at runtime and caches results for 10 minutes.
-- Public sources currently wired: SimplifyJobs Summer 2026, SimplifyJobs Off-Season, Greenhouse public Job Board API, Remotive API, and RemoteOK API.
-- Browser API check passed: `/api/jobs?query=intern&season=fall2026&limit=3` returned real Tesla Fall 2026 internship postings with original application URLs.
-- Search view browser QA passed: auto-loaded 120 matching live roles, showed source stats, and imported a live Tesla role into the Saved pipeline.
-- Sidebar feature QA passed for Search, Companies, Contacts, Calendar, Tasks, Documents, Analytics, Resources, and Settings; each view renders functional content instead of placeholder panels.
-- Removed seeded/demo job, task, contact, and document data. Fresh reload starts with 0 pipeline cards and empty local records.
-- Browser QA passed for dynamic growth: live feed starts at 120 shown of 420 public-source roles, importing one role increases the pipeline from 0 to 1, and clearing local data returns the pipeline to 0.
-- Live role normalization no longer injects fake recruiter names or placeholder email addresses.
-- Application goal is user-configurable from Dashboard and Settings. Browser QA passed for Save, reload persistence, and Clear without leaving test goal data behind.
-- Added local login/register flow with session gating. Browser QA passed for register, app entry, logout, and mobile auth layout.
-- Added four generated bitmap profile image presets and a Settings profile editor. Browser QA passed for image selection updating sidebar and topbar avatars.
-- Added New Grad support across live API, Search filters, manual job creation, and Pipeline season tabs. Browser/API QA passed with New Grad matches from public Greenhouse listings.
-- Search result stats now distinguish shown rows, matching filters, indexed roles, and source count. Pinterest search correctly reports 2 matching filters from 420 indexed roles.
-- Pipeline empty state now clarifies that the pipeline is empty and offers an Import from Live Feed action. Browser QA passed after importing and clearing a test role.
-- Mobile Search overflow was fixed by constraining opportunity row children; 390px viewport QA passed with no overflowing elements.
-
-**Open Questions**
-- None blocking.
-
-**Implementation Checklist**
-- Build passes with `npm run build`.
-- Desktop browser QA passes.
-- Mobile browser QA passes.
-- Core interactions pass.
-- Live feed API passes local browser and curl checks.
+- Replaced the prior three-dot mark with the selected Forward Loop vector.
+- Added a branded login lockup for loading and authentication states.
+- Added dedicated Apple touch and Open Graph assets.
+- Changed sidebar image treatment from cover cropping to contained rendering.
+- Added responsive brand sizing at the mobile breakpoint.
 
 **Follow-up Polish**
-- Add authenticated sources such as Handshake or LinkedIn only after the user approves login/API access.
-- Expand company-board coverage beyond the initial Greenhouse boards.
+
+- The flat vector intentionally omits the generated concept's glossy highlights; no fidelity action is required.
 
 final result: passed

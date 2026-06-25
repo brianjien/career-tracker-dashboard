@@ -132,7 +132,7 @@ a {
   color: #fff;
 }
 
-.auth-visual img {
+.auth-visual > .auth-visual-image {
   position: absolute;
   inset: 0;
   width: 100%;
@@ -148,18 +148,39 @@ a {
   background: linear-gradient(180deg, rgba(7, 27, 17, 0.08), rgba(7, 27, 17, 0.72));
 }
 
-.auth-visual div {
+.auth-brand {
   position: relative;
   z-index: 1;
+  display: grid;
+  grid-template-columns: 58px minmax(0, 1fr);
+  align-items: center;
+  gap: 12px;
+}
+
+.auth-visual .auth-brand-mark {
+  position: static;
+  display: block;
+  width: 58px;
+  height: 58px;
+  padding: 8px;
+  border: 1px solid rgba(217, 248, 231, 0.28);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.92);
+  object-fit: contain;
+  opacity: 1;
+  box-shadow: 0 12px 30px rgba(2, 19, 10, 0.18);
+}
+
+.auth-brand-copy {
   display: grid;
   gap: 4px;
 }
 
-.auth-visual strong {
+.auth-brand-copy strong {
   font-size: 28px;
 }
 
-.auth-visual span {
+.auth-brand-copy > span {
   color: #d8f5e4;
   font-weight: 750;
 }
@@ -347,8 +368,10 @@ a {
   width: 52px;
   height: 52px;
   display: block;
+  padding: 7px;
   border-radius: 8px;
-  object-fit: cover;
+  background: #fff;
+  object-fit: contain;
   box-shadow: var(--small-shadow);
 }
 
@@ -5270,7 +5293,18 @@ a {
     padding: 18px;
   }
 
-  .auth-visual strong {
+  .auth-brand {
+    grid-template-columns: 48px minmax(0, 1fr);
+    gap: 10px;
+  }
+
+  .auth-visual .auth-brand-mark {
+    width: 48px;
+    height: 48px;
+    padding: 7px;
+  }
+
+  .auth-brand-copy strong {
     font-size: 24px;
   }
 
