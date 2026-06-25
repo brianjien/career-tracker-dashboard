@@ -765,10 +765,13 @@ export function App() {
       <main className="auth-shell">
         <section className="auth-card">
           <div className="auth-visual">
-            <img src={profilePresets[0].src} alt="" />
-            <div>
-              <strong>Career Tracker</strong>
-              <span>Internship + New Grad</span>
+            <img className="auth-visual-image" src={profilePresets[0].src} alt="" />
+            <div className="auth-brand">
+              <img className="auth-brand-mark" src="/assets/career-track-mark.svg" alt="" />
+              <span className="auth-brand-copy">
+                <strong>Career Tracker</strong>
+                <span>Internship + New Grad</span>
+              </span>
             </div>
           </div>
           <div className="auth-form">
@@ -788,7 +791,7 @@ export function App() {
     <div className="app-shell">
       <aside className={classNames("sidebar", mobileNavOpen && "is-open")}>
         <div className="brand-lockup">
-          <img src="/assets/career-track-mark.svg" alt="Career tracker mark" />
+          <img src="/assets/career-track-mark.svg" alt="Career Tracker Forward Loop" />
           <div>
             <strong>Career Tracker</strong>
             <span>Internship + New Grad</span>

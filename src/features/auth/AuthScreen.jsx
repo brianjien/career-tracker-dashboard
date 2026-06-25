@@ -130,10 +130,13 @@ export function AuthScreen({ onLogin, onRegister, onGoogleCredential }) {
     <main className="auth-shell">
       <section className="auth-card">
         <div className="auth-visual">
-          <img src={draft.avatar} alt="" />
-          <div>
-            <strong>Career Tracker</strong>
-            <span>Internship + New Grad</span>
+          <img className="auth-visual-image" src={draft.avatar} alt="" />
+          <div className="auth-brand">
+            <img className="auth-brand-mark" src="/assets/career-track-mark.svg" alt="" />
+            <span className="auth-brand-copy">
+              <strong>Career Tracker</strong>
+              <span>Internship + New Grad</span>
+            </span>
           </div>
         </div>
         <form className="auth-form" onSubmit={submit}>
