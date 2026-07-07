@@ -121,6 +121,7 @@ export function App() {
     () => new Intl.DateTimeFormat("en-US", { weekday: "short", month: "short", day: "numeric" }).format(new Date()),
     [],
   );
+  const workspaceTitle = activeView === "Dashboard" ? "Dashboard" : activeView === "Pipeline" ? "Pipeline" : activeView;
 
   function applyWorkspace(workspace) {
     const next = normalizeWorkspace(workspace);
@@ -788,7 +789,7 @@ export function App() {
   }
 
   return (
-    <div className="app-shell">
+    <div className="app-shell" data-active-view={activeView.toLowerCase()}>
       <aside className={classNames("sidebar", mobileNavOpen && "is-open")}>
         <div className="brand-lockup">
           <img src="/assets/career-track-mark.svg" alt="Career Tracker Forward Loop" />
@@ -836,7 +837,7 @@ export function App() {
             <Menu size={20} />
           </IconButton>
           <div className="title-block">
-            <h1>Career Tracker Dashboard</h1>
+            <h1>{workspaceTitle}</h1>
             <p>{profile.graduation} · {profile.program}</p>
           </div>
 
