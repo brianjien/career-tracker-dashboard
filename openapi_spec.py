@@ -90,6 +90,16 @@ def build_openapi_spec():
                             },
                         },
                         {
+                            "name": "eligibility",
+                            "in": "query",
+                            "schema": {
+                                "type": "string",
+                                "enum": ["all", "f1", "opt", "cpt", "sponsorship", "no-sponsorship"],
+                                "default": "all",
+                            },
+                            "description": "F-1 returns a review queue without known restrictions; OPT, CPT, and sponsorship require explicit public-posting wording.",
+                        },
+                        {
                             "name": "refresh",
                             "in": "query",
                             "schema": {"type": "boolean", "default": False},
