@@ -23,6 +23,18 @@ function getOpportunityRoleType(job = {}) {
   return job.season === "New Grad" ? "New Grad" : "Role";
 }
 
+function getOpportunityTags(job = {}) {
+  const seen = new Set();
+  return [job.season, job.mode, job.source, ...(job.tags || [])]
+    .filter((value) => {
+      const key = String(value || "").trim().toLowerCase();
+      if (!key || seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
+    .slice(0, 3);
+}
+
 function getEligibilitySignal(job = {}) {
   const text = `${job.sponsorship || ""} ${job.summary || ""} ${job.description || ""} ${(job.tags || []).join(" ")}`.toLowerCase();
   const hasOpt = /\bopt\b/.test(text);
@@ -343,10 +355,10 @@ export function LiveSearchView({
 
   return (
     <section className="view-shell live-search-view">
-      <ViewHeader eyebrow="Live Search" title="Real internship feed">
-        <button className="primary-button" type="button" onClick={() => onRefresh(true)} disabled={liveStatus === "loading"}>
+      <ViewHeader eyebrow="Jobs" title="Search opportunities">
+        <button className="secondary-button refresh-feed-button" type="button" onClick={() => onRefresh(true)} disabled={liveStatus === "loading"}>
           <RefreshCcw size={16} aria-hidden="true" />
-          {liveStatus === "loading" ? "Fetching" : "Refresh Feed"}
+          {liveStatus === "loading" ? "Updating" : "Refresh"}
         </button>
       </ViewHeader>
 
@@ -406,8 +418,8 @@ export function LiveSearchView({
             <span>
               <strong>{isF1ReviewQueue ? "Restriction-aware review" : "Evidence-based filter"}</strong>
               {isF1ReviewQueue
-                ? " Excludes known no-sponsorship and citizenship restrictions. Employer confirmation is still required."
-                : " OPT, CPT, and sponsorship results require explicit wording in the public posting. Always verify before applying."}
+                ? " Removes known sponsorship and citizenship restrictions. Confirm eligibility with the employer."
+                : " Uses explicit OPT, CPT, and sponsorship wording from the posting."}
             </span>
           </div>
           {hasActiveFilters && (
@@ -419,31 +431,17 @@ export function LiveSearchView({
         </section>
       )}
 
-      <div className="source-row">
-        <article>
-          <strong>{liveJobs.length}</strong>
-          <span>shown now</span>
-        </article>
-        <article>
-          <strong>{liveFilteredTotal}</strong>
-          <span>matching filters</span>
-        </article>
-        <article>
-          <strong>{liveTotal}</strong>
-          <span>indexed roles</span>
-        </article>
-        <article>
-          <strong>{sources?.length || 0}</strong>
-          <span>public sources</span>
-        </article>
-      </div>
-
-      <div className="filter-summary">
-        <span>
-          {hasActiveFilters
-            ? `Showing ${liveFilteredTotal} matches from ${liveTotal} indexed roles. Last fetch ${fetchedAt ? formatDate(fetchedAt.slice(0, 10), { month: "short", day: "numeric" }) : "-"}`
-            : `Showing the top ${liveJobs.length} live roles from ${liveTotal} indexed roles.`}
-        </span>
+      <div className="search-results-summary" aria-live="polite">
+        <div>
+          <strong>{liveFilteredTotal.toLocaleString()}</strong>
+          <span>matching roles</span>
+          <small>{liveJobs.length.toLocaleString()} loaded</small>
+        </div>
+        <div className="search-results-meta">
+          <span>{liveTotal.toLocaleString()} indexed</span>
+          <span>{sources?.length || 0} sources</span>
+          <span>{liveStatus === "loading" ? "Updating now" : `Updated ${fetchedAt ? formatDate(fetchedAt.slice(0, 10), { month: "short", day: "numeric" }) : "-"}`}</span>
+        </div>
       </div>
 
       {liveStatus === "error" && (
@@ -470,6 +468,7 @@ export function LiveSearchView({
           const linkStatus = linkStatuses[job.id] || {};
           const isCheckingLink = Boolean(checkingLinkIds[job.id]);
           const linkStatusText = getLinkStatusText(linkStatus, hasSource);
+          const displayTags = getOpportunityTags(job);
           return (
             <article key={job.id} className={`opportunity-row${isBlockingLinkStatus(linkStatus) ? " opportunity-row-closed" : ""}`}>
               <CompanyLogo company={job.company} />
@@ -481,10 +480,7 @@ export function LiveSearchView({
                   </p>
                 </div>
                 <div className="tag-list">
-                  <span>{job.season}</span>
-                  <span>{job.mode}</span>
-                  <span>{job.source}</span>
-                  {(job.tags || []).slice(0, 2).map((tag) => (
+                  {displayTags.map((tag) => (
                     <span key={`${job.id}-${tag}`}>{tag}</span>
                   ))}
                 </div>

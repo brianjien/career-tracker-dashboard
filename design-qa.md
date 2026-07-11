@@ -1,33 +1,28 @@
-# SaaS Experience Refresh QA
+# Quiet Search UI QA
 
-- Source evidence:
-  - `/var/folders/sb/y1lyt_h97b973k4rywjbw40c0000gn/T/codex-clipboard-67029549-49f3-4d0d-ad42-5ef8fb923bd5.png`
-  - `/var/folders/sb/y1lyt_h97b973k4rywjbw40c0000gn/T/codex-clipboard-0179ce53-6a00-4319-bd2f-3ad8a9a1075d.png`
+- Source evidence: `/var/folders/sb/y1lyt_h97b973k4rywjbw40c0000gn/T/codex-clipboard-c3150026-bae7-417e-ba87-f5da5e342c80.png`
 - Implementation evidence:
-  - `qa-artifacts/saas-landing-desktop.png`
-  - `qa-artifacts/saas-landing-mobile.png`
-  - `qa-artifacts/saas-search-desktop.png`
-  - `qa-artifacts/saas-mobile-search.png`
+  - `qa-artifacts/quiet-search-desktop.png`
+  - `qa-artifacts/quiet-search-mobile.png`
 - Verified viewports: default desktop and 390 x 844 mobile.
-- Verified states: public start page, sign-in and registration dialogs, expanded and collapsed sidebar, expanded and collapsed search filters, and F-1 review queue.
+- Verified states: expanded and collapsed filters, live results, mobile job actions, sidebar navigation, and compact result summary.
 
 ## Findings
 
-- No actionable P0, P1, or P2 visual issues remain.
-- The public start page exposes the product before authentication and leaves the next content band visible in the first viewport.
-- The desktop sidebar transitions between 220px and 78px without page overflow; icon labels remain available through accessible names and native titles.
-- Search controls stay on one row on mobile, while the expanded filter panel stacks into a readable single column.
-- The F-1 review queue excludes known no-sponsorship and citizenship restrictions. OPT, CPT, and sponsorship filters remain strict evidence filters and may correctly return zero results when sources do not state those terms.
-- Registration and Google sign-in controls fit within the mobile bottom sheet without horizontal scrolling.
-- Desktop and mobile document widths equal their viewport client widths; no body-level horizontal overflow was observed.
-- Browser console inspection found no new errors or warnings on the public start page.
+- No P0, P1, or P2 visual issues remain.
+- The mint-tinted card wall was replaced by a neutral workspace, one restrained result container, and clear row dividers.
+- Search metrics now read as one compact summary instead of four oversized statistic cards.
+- Repeated source and cycle tags are deduplicated and limited to three metadata values per role.
+- Green is reserved for active navigation, eligibility states, and intentional actions; informational copy and secondary controls use neutral tones.
+- Desktop and mobile body widths match their viewport client widths with no horizontal overflow.
+- Mobile Preview, Apply, and Import controls remain visible and aligned below each role.
+- Browser console inspection found no new errors or warnings.
 
 ## Patches Made During QA
 
-- Reduced the mobile hero and product preview so the workflow section is visible in the first viewport.
-- Corrected Google button sizing inside the mobile registration sheet.
-- Removed sidebar brand wrapping at the 220px desktop breakpoint.
-- Kept the mobile live-search field and filter button on the same row.
-- Added local-storage fallbacks for browsers that block sidebar preference persistence.
+- Kept the mobile search input and filter button on one row.
+- Stacked mobile filters with a plain evidence note instead of a highlighted callout card.
+- Reduced border radius, shadows, color fills, and hover movement across shared application chrome.
+- Preserved all Search, Preview, Apply, Import, refresh, and F-1 filter behavior.
 
 final result: passed
