@@ -2532,15 +2532,44 @@ def dedupe_jobs(jobs):
     return unique
 
 
+def eligibility_matches(job, eligibility):
+    if eligibility == "all":
+        return True
+    text = (
+        f"{job.get('sponsorship', '')} {job.get('summary', '')} {job.get('description', '')} "
+        f"{' '.join(job.get('tags') or [])}"
+    ).lower()
+    has_opt = bool(re.search(r"\bopt\b", text))
+    has_cpt = bool(re.search(r"\bcpt\b", text))
+    blocks_sponsorship = bool(re.search(r"no sponsorship|without sponsorship|unable to sponsor", text))
+    citizenship_restricted = bool(re.search(r"u\.?s\.? citizens?|citizenship required|security clearance", text))
+    offers_sponsorship = bool(
+        re.search(r"visa sponsorship|will sponsor|sponsorship available|sponsor(?:ing)? work visa", text)
+    ) and not blocks_sponsorship
+
+    if eligibility == "opt":
+        return has_opt
+    if eligibility == "cpt":
+        return has_cpt
+    if eligibility == "f1":
+        return not blocks_sponsorship and not citizenship_restricted
+    if eligibility == "sponsorship":
+        return offers_sponsorship
+    if eligibility == "no-sponsorship":
+        return blocks_sponsorship
+    return True
+
+
 def filter_jobs(jobs, params):
     query = clean_text(params.get("query"), 120).lower()
     season = clean_text(params.get("season"), 40, "all") or "all"
     remote = clean_text(params.get("remote"), 40, "all") or "all"
+    eligibility = clean_text(params.get("eligibility"), 40, "all") or "all"
     filtered = []
     for job in jobs:
         blob = (
             f"{job['company']} {job['role']} {job['location']} {job['season']} {job.get('source', '')} "
-            f"{job.get('summary', '')} {job.get('description', '')} {' '.join(job['tags'])}"
+            f"{job.get('summary', '')} {job.get('description', '')} {job.get('sponsorship', '')} {' '.join(job['tags'])}"
         ).lower()
         season_ok = (
             season == "all"
@@ -2551,7 +2580,7 @@ def filter_jobs(jobs, params):
             or season.replace("-", " ") in blob
         )
         remote_ok = remote == "all" or job["mode"].lower() == remote
-        if (not query or query in blob) and season_ok and remote_ok:
+        if (not query or query in blob) and season_ok and remote_ok and eligibility_matches(job, eligibility):
             filtered.append(job)
     return filtered
 

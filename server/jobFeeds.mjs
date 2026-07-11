@@ -546,10 +546,27 @@ function dedupeJobs(jobs) {
   return unique;
 }
 
-function filterJobs(jobs, { query = "", season = "all", remote = "all" }) {
+function eligibilityMatches(job, eligibility = "all") {
+  if (eligibility === "all") return true;
+  const text = `${job.sponsorship || ""} ${job.summary || ""} ${job.description || ""} ${(job.tags || []).join(" ")}`.toLowerCase();
+  const hasOpt = /\bopt\b/.test(text);
+  const hasCpt = /\bcpt\b/.test(text);
+  const blocksSponsorship = /no sponsorship|without sponsorship|unable to sponsor/.test(text);
+  const citizenshipRestricted = /u\.?s\.? citizens?|citizenship required|security clearance/.test(text);
+  const offersSponsorship = /visa sponsorship|will sponsor|sponsorship available|sponsor(?:ing)? work visa/.test(text) && !blocksSponsorship;
+
+  if (eligibility === "opt") return hasOpt;
+  if (eligibility === "cpt") return hasCpt;
+  if (eligibility === "f1") return !blocksSponsorship && !citizenshipRestricted;
+  if (eligibility === "sponsorship") return offersSponsorship;
+  if (eligibility === "no-sponsorship") return blocksSponsorship;
+  return true;
+}
+
+function filterJobs(jobs, { query = "", season = "all", remote = "all", eligibility = "all" }) {
   const q = query.trim().toLowerCase();
   return jobs.filter((job) => {
-    const blob = `${job.company} ${job.role} ${job.location} ${job.season} ${job.source || ""} ${job.summary || ""} ${job.description || ""} ${job.tags.join(" ")}`.toLowerCase();
+    const blob = `${job.company} ${job.role} ${job.location} ${job.season} ${job.source || ""} ${job.summary || ""} ${job.description || ""} ${job.sponsorship || ""} ${job.tags.join(" ")}`.toLowerCase();
     const seasonOk =
       season === "all" ||
       (season === "fall2026" && job.season === "2026 Fall") ||
@@ -558,7 +575,7 @@ function filterJobs(jobs, { query = "", season = "all", remote = "all" }) {
       (season === "newgrad" && (job.season === "New Grad" || blob.includes("new grad") || blob.includes("entry level") || blob.includes("early career"))) ||
       blob.includes(season.replace(/-/g, " "));
     const remoteOk = remote === "all" || job.mode.toLowerCase() === remote;
-    return (!q || blob.includes(q)) && seasonOk && remoteOk;
+    return (!q || blob.includes(q)) && seasonOk && remoteOk && eligibilityMatches(job, eligibility);
   });
 }
 

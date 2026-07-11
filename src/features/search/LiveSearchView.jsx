@@ -7,6 +7,7 @@ import {
   FiRefreshCcw as RefreshCcw,
   FiSearch as Search,
   FiShield as ShieldCheck,
+  FiSliders as Sliders,
   FiX as X,
 } from "react-icons/fi";
 import { CompanyLogo, EmptyState, ViewHeader } from "../../components/ui.jsx";
@@ -22,6 +23,22 @@ function getOpportunityRoleType(job = {}) {
   return job.season === "New Grad" ? "New Grad" : "Role";
 }
 
+function getEligibilitySignal(job = {}) {
+  const text = `${job.sponsorship || ""} ${job.summary || ""} ${job.description || ""} ${(job.tags || []).join(" ")}`.toLowerCase();
+  const hasOpt = /\bopt\b/.test(text);
+  const hasCpt = /\bcpt\b/.test(text);
+  if (hasOpt && hasCpt) return "OPT + CPT mentioned";
+  if (hasOpt) return "OPT mentioned";
+  if (hasCpt) return "CPT mentioned";
+  if (/\bf-?1\b|international students?|international candidates?/.test(text)) return "F-1 / international mentioned";
+  if (/visa sponsorship|will sponsor|sponsorship available|sponsor(?:ing)? work visa/.test(text) && !/no sponsorship|without sponsorship/.test(text)) {
+    return "Sponsorship mentioned";
+  }
+  if (/no sponsorship|without sponsorship/.test(text)) return "No sponsorship";
+  if (/u\.?s\.? citizens?|citizenship required|security clearance/.test(text)) return "Citizenship restriction";
+  return "Eligibility: verify";
+}
+
 function getOpportunityRequirementItems(job = {}) {
   const items = [
     { label: "Role Type", value: getOpportunityRoleType(job) },
@@ -29,6 +46,7 @@ function getOpportunityRequirementItems(job = {}) {
     { label: "Location", value: job.location || "Not listed" },
     { label: "Work Mode", value: job.mode || "Not listed" },
     { label: "Sponsorship", value: job.sponsorship === "Unknown" ? "Verify on posting" : job.sponsorship },
+    { label: "F-1 Signal", value: getEligibilitySignal(job) },
     { label: "Posted", value: job.posted || "Not listed" },
   ];
   if (job.deadline) items.push({ label: "Deadline", value: formatDate(job.deadline) });
@@ -265,12 +283,14 @@ export function LiveSearchView({
   liveQuery,
   liveSeason,
   liveRemote,
+  liveEligibility,
   liveTotal,
   liveFilteredTotal,
   liveLimit,
   setLiveQuery,
   setLiveSeason,
   setLiveRemote,
+  setLiveEligibility,
   onLoadMore,
   onClearFilters,
   onRefresh,
@@ -279,8 +299,11 @@ export function LiveSearchView({
   fetchedAt,
   sources,
 }) {
-  const hasActiveFilters = Boolean(liveQuery.trim()) || liveSeason !== "all" || liveRemote !== "all";
+  const hasActiveFilters = Boolean(liveQuery.trim()) || liveSeason !== "all" || liveRemote !== "all" || liveEligibility !== "all";
+  const activeFilterCount = [liveSeason !== "all", liveRemote !== "all", liveEligibility !== "all"].filter(Boolean).length;
+  const isF1ReviewQueue = liveEligibility === "f1";
   const [previewJob, setPreviewJob] = useState(null);
+  const [filtersOpen, setFiltersOpen] = useState(true);
   const [linkStatuses, setLinkStatuses] = useState({});
   const [checkingLinkIds, setCheckingLinkIds] = useState({});
 
@@ -333,32 +356,68 @@ export function LiveSearchView({
           <span className="sr-only">Search live opportunities</span>
           <input value={liveQuery} onChange={(event) => setLiveQuery(event.target.value)} placeholder="Software, ML, data, company..." />
         </label>
-        <label>
-          Track
-          <select value={liveSeason} onChange={(event) => setLiveSeason(event.target.value)}>
-            <option value="all">All</option>
-            <option value="internship">Internship</option>
-            <option value="fall2026">2026 Fall</option>
-            <option value="2027">2027</option>
-            <option value="newgrad">New Grad</option>
-          </select>
-        </label>
-        <label>
-          Mode
-          <select value={liveRemote} onChange={(event) => setLiveRemote(event.target.value)}>
-            <option value="all">All</option>
-            <option value="remote">Remote</option>
-            <option value="hybrid">Hybrid</option>
-            <option value="on-site">On-site</option>
-          </select>
-        </label>
-        {hasActiveFilters && (
-          <button className="secondary-button clear-filter-button" type="button" onClick={onClearFilters}>
-            <X size={15} aria-hidden="true" />
-            Clear
-          </button>
-        )}
+        <button
+          className={`secondary-button live-filter-toggle${filtersOpen ? " is-open" : ""}`}
+          type="button"
+          aria-expanded={filtersOpen}
+          aria-controls="live-search-filters"
+          onClick={() => setFiltersOpen((open) => !open)}
+        >
+          <Sliders size={16} aria-hidden="true" />
+          Filters
+          {activeFilterCount > 0 && <span>{activeFilterCount}</span>}
+        </button>
       </div>
+
+      {filtersOpen && (
+        <section className="live-filter-panel" id="live-search-filters" aria-label="Job search filters">
+          <label>
+            Track
+            <select value={liveSeason} onChange={(event) => setLiveSeason(event.target.value)}>
+              <option value="all">All tracks</option>
+              <option value="internship">Internship</option>
+              <option value="fall2026">2026 Fall</option>
+              <option value="2027">2027</option>
+              <option value="newgrad">New Grad</option>
+            </select>
+          </label>
+          <label>
+            Work mode
+            <select value={liveRemote} onChange={(event) => setLiveRemote(event.target.value)}>
+              <option value="all">All modes</option>
+              <option value="remote">Remote</option>
+              <option value="hybrid">Hybrid</option>
+              <option value="on-site">On-site</option>
+            </select>
+          </label>
+          <label>
+            F-1 work authorization
+            <select value={liveEligibility} onChange={(event) => setLiveEligibility(event.target.value)}>
+              <option value="all">All eligibility signals</option>
+              <option value="f1">F-1 review queue</option>
+              <option value="opt">OPT explicitly mentioned</option>
+              <option value="cpt">CPT explicitly mentioned</option>
+              <option value="sponsorship">Sponsorship mentioned</option>
+              <option value="no-sponsorship">No sponsorship</option>
+            </select>
+          </label>
+          <div className="eligibility-filter-note">
+            <ShieldCheck size={17} aria-hidden="true" />
+            <span>
+              <strong>{isF1ReviewQueue ? "Restriction-aware review" : "Evidence-based filter"}</strong>
+              {isF1ReviewQueue
+                ? " Excludes known no-sponsorship and citizenship restrictions. Employer confirmation is still required."
+                : " OPT, CPT, and sponsorship results require explicit wording in the public posting. Always verify before applying."}
+            </span>
+          </div>
+          {hasActiveFilters && (
+            <button className="text-button clear-filter-button" type="button" onClick={onClearFilters}>
+              <X size={15} aria-hidden="true" />
+              Reset filters
+            </button>
+          )}
+        </section>
+      )}
 
       <div className="source-row">
         <article>
@@ -431,7 +490,9 @@ export function LiveSearchView({
                 </div>
                 <div className="opportunity-detail-strip">
                   <span>Posted {job.posted || "Recently"}</span>
-                  <span>{job.sponsorship === "Unknown" ? "Sponsorship: verify" : job.sponsorship}</span>
+                  <span className={getEligibilitySignal(job) === "Eligibility: verify" ? "eligibility-unknown" : "eligibility-signal"}>
+                    {getEligibilitySignal(job)}
+                  </span>
                   <span className={isBlockingLinkStatus(linkStatus) ? "link-status-closed" : ""}>
                     {isCheckingLink ? "Checking apply link" : linkStatusText}
                   </span>

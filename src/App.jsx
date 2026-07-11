@@ -6,6 +6,8 @@ import {
   FiChevronDown as ChevronDown,
   FiChevronLeft as ChevronLeft,
   FiChevronRight as ChevronRight,
+  FiChevronsLeft as ChevronsLeft,
+  FiChevronsRight as ChevronsRight,
   FiMenu as Menu,
   FiEdit2 as Pencil,
   FiRefreshCcw as RefreshCcw,
@@ -76,6 +78,15 @@ function withInitialActivity(job) {
   };
 }
 
+function readSidebarCollapsed() {
+  if (typeof window === "undefined") return false;
+  try {
+    return window.localStorage.getItem("career-tracker-sidebar-collapsed") === "true";
+  } catch {
+    return false;
+  }
+}
+
 export function App() {
   const [currentUser, setCurrentUser] = useState(null);
   const [authToken, setAuthToken] = useState(readInitialAuthToken);
@@ -105,11 +116,13 @@ export function App() {
   const [modalStage, setModalStage] = useState(null);
   const [toast, setToast] = useState("");
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(readSidebarCollapsed);
   const [liveJobs, setLiveJobs] = useState([]);
   const [liveStatus, setLiveStatus] = useState("idle");
   const [liveQuery, setLiveQuery] = useState("");
   const [liveSeason, setLiveSeason] = useState("all");
   const [liveRemote, setLiveRemote] = useState("all");
+  const [liveEligibility, setLiveEligibility] = useState("all");
   const [liveLimit, setLiveLimit] = useState(240);
   const [liveTotal, setLiveTotal] = useState(0);
   const [liveFilteredTotal, setLiveFilteredTotal] = useState(0);
@@ -190,7 +203,15 @@ export function App() {
       fetchLiveJobs(false);
     }, 250);
     return () => window.clearTimeout(timer);
-  }, [currentUser, liveQuery, liveSeason, liveRemote, liveLimit]);
+  }, [currentUser, liveQuery, liveSeason, liveRemote, liveEligibility, liveLimit]);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem("career-tracker-sidebar-collapsed", String(sidebarCollapsed));
+    } catch {
+      // The layout still works when private browsers block local storage.
+    }
+  }, [sidebarCollapsed]);
 
   const filteredJobs = useMemo(() => {
     const query = search.trim().toLowerCase();
@@ -270,6 +291,7 @@ export function App() {
       query: liveQuery,
       season: liveSeason,
       remote: liveRemote,
+      eligibility: liveEligibility,
       limit: String(liveLimit),
     });
     if (refresh) params.set("refresh", "true");
@@ -635,6 +657,7 @@ export function App() {
     setLiveQuery("");
     setLiveSeason("all");
     setLiveRemote("all");
+    setLiveEligibility("all");
     setLiveLimit(240);
   }
 
@@ -663,12 +686,14 @@ export function App() {
           liveQuery={liveQuery}
           liveSeason={liveSeason}
           liveRemote={liveRemote}
+          liveEligibility={liveEligibility}
           liveTotal={liveTotal}
           liveFilteredTotal={liveFilteredTotal}
           liveLimit={liveLimit}
           setLiveQuery={setLiveQuery}
           setLiveSeason={setLiveSeason}
           setLiveRemote={setLiveRemote}
+          setLiveEligibility={setLiveEligibility}
           onLoadMore={loadMoreLiveJobs}
           onClearFilters={clearLiveFilters}
           onRefresh={fetchLiveJobs}
@@ -789,14 +814,23 @@ export function App() {
   }
 
   return (
-    <div className="app-shell" data-active-view={activeView.toLowerCase()}>
+    <div className={classNames("app-shell", sidebarCollapsed && "is-sidebar-collapsed")} data-active-view={activeView.toLowerCase()}>
       <aside className={classNames("sidebar", mobileNavOpen && "is-open")}>
-        <div className="brand-lockup">
+        <div className="sidebar-brand-row">
+          <div className="brand-lockup">
           <img src="/assets/career-track-mark.svg" alt="Career Tracker Forward Loop" />
           <div>
             <strong>Career Tracker</strong>
             <span>Internship + New Grad</span>
           </div>
+          </div>
+          <IconButton
+            label={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+            className="sidebar-collapse-button"
+            onClick={() => setSidebarCollapsed((collapsed) => !collapsed)}
+          >
+            {sidebarCollapsed ? <ChevronsRight size={16} /> : <ChevronsLeft size={16} />}
+          </IconButton>
         </div>
 
         <nav aria-label="Main navigation">
@@ -807,6 +841,7 @@ export function App() {
                 key={item.label}
                 className={item.label === activeView ? "is-active" : ""}
                 type="button"
+                title={sidebarCollapsed ? item.label : undefined}
                 onClick={() => {
                   setActiveView(item.label);
                   setMobileNavOpen(false);
