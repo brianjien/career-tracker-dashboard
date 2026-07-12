@@ -6,6 +6,7 @@ Modern green SaaS dashboard for tracking 2026 fall internships, 2027 roles, and 
 
 - Full React dashboard with pipeline, tasks, companies, contacts, analytics, resources, and settings.
 - Database-backed email/password and Google sign-in with profile image presets.
+- On-demand Gmail read-only analysis for recruiter outreach, application updates, OAs, interviews, rejections, and offers.
 - Live job feed from public sources through `/api/jobs`.
 - Filters for 2026 Fall, 2027, New Grad, and remote mode.
 - Goal setting and pipeline progress tracking.
@@ -61,3 +62,5 @@ S3_ACCESS_KEY_ID
 S3_SECRET_ACCESS_KEY
 S3_ADDRESSING_STYLE=path
 ```
+
+For Gmail intelligence, enable the Gmail API for the Google OAuth project, add the `gmail.readonly` scope to the consent screen, and configure `GEMINI_API_KEY` as a Wasmer secret. Gmail access tokens and full message bodies are never stored.

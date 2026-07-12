@@ -12,7 +12,7 @@ The Wasmer deployment uses the Python/Flask entrypoint in `app.py`. The small `a
 
 - `app.py` serves the built React app from `dist/`.
 - `app.py` handles `/api/*` for auth, Google sign-in, workspace persistence, health checks, and live job fetching.
-- MySQL data is stored in normalized relational tables. The active schema is version 2 and is designed to BCNF.
+- MySQL data is stored in normalized relational tables. The active schema is version 3 and is designed to BCNF.
 - Live jobs are fetched dynamically from SimplifyJobs, Greenhouse public boards, Remotive, and RemoteOK.
 
 The Flask backend is the single active local and production backend. Older Node backend files remain only as migration history and are not used by the npm scripts or Wasmer deployment.
@@ -88,6 +88,18 @@ https://internship-tracker.wasmer.app
 http://127.0.0.1:8794
 http://localhost:8794
 ```
+
+## Gmail Intelligence
+
+The Email view requests `https://www.googleapis.com/auth/gmail.readonly` only when the user chooses **Connect Gmail**. Enable the Gmail API in the same Google Cloud project and add that scope to the OAuth consent screen.
+
+Gemini classification runs on the backend. Store the key as a Wasmer secret:
+
+```bash
+wasmer app secret create GEMINI_API_KEY '<key>' --app brianjienop49792399/uiuc-mcs-internship-tracker
+```
+
+The short-lived Gmail token is used only for the current request. The database stores one-way message hashes, recruiting metadata, classifications, summaries, and next actions; it does not store access tokens or full message bodies.
 
 ## Deploy
 

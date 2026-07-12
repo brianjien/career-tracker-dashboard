@@ -89,7 +89,7 @@ class RelationalWorkspaceTests(unittest.TestCase):
         self.assertTrue(normalized["notificationState"]["browserAlerts"])
 
     def test_schema_metadata_declares_bcnf(self):
-        self.assertEqual(app.DATABASE_SCHEMA_VERSION, 2)
+        self.assertEqual(app.DATABASE_SCHEMA_VERSION, 3)
         self.assertEqual(app.DATABASE_NORMAL_FORM, "BCNF")
 
 
