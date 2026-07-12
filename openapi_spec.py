@@ -45,6 +45,7 @@ def build_openapi_spec():
             {"name": "Profile", "description": "Candidate profile"},
             {"name": "Workspace", "description": "Jobs, tasks, contacts, documents, goals, and notifications"},
             {"name": "Leaderboard", "description": "Application activity rankings"},
+            {"name": "Email", "description": "On-demand Gmail recruiting signal analysis"},
             {"name": "Documents", "description": "Private S3-compatible file storage"},
         ],
         "paths": {
@@ -315,6 +316,45 @@ def build_openapi_spec():
                     },
                 }
             },
+            "/api/email/analyses": {
+                "get": {
+                    "tags": ["Email"],
+                    "summary": "Load saved recruiting email signals",
+                    "operationId": "getEmailAnalyses",
+                    "security": AUTH_SECURITY,
+                    "parameters": [
+                        {
+                            "name": "limit",
+                            "in": "query",
+                            "schema": {"type": "integer", "minimum": 1, "maximum": 200, "default": 100},
+                        }
+                    ],
+                    "responses": {
+                        "200": response("Saved email analysis", ref("EmailAnalysisResponse")),
+                        "401": response("Not authenticated", ref("Error")),
+                        "429": response("Rate limit exceeded", ref("Error")),
+                    },
+                }
+            },
+            "/api/email/analyze": {
+                "post": {
+                    "tags": ["Email"],
+                    "summary": "Analyze recent Gmail recruiting messages",
+                    "operationId": "analyzeGmail",
+                    "description": "Uses a short-lived Gmail read-only access token. The token and full message bodies are never stored.",
+                    "security": AUTH_SECURITY,
+                    "requestBody": json_request(ref("EmailAnalysisRequest")),
+                    "responses": {
+                        "200": response("Updated email analysis", ref("EmailAnalysisResponse")),
+                        "400": response("Invalid Gmail permission or request", ref("Error")),
+                        "401": response("Not authenticated", ref("Error")),
+                        "403": response("Cross-site request rejected", ref("Error")),
+                        "415": response("Expected JSON", ref("Error")),
+                        "429": response("Rate limit exceeded", ref("Error")),
+                        "502": response("Gmail or AI analysis failed", ref("Error")),
+                    },
+                }
+            },
             "/api/documents/upload": {
                 "post": {
                     "tags": ["Documents"],
@@ -425,7 +465,7 @@ def schemas():
             "properties": {
                 "configured": {"type": "boolean"},
                 "ok": {"type": "boolean"},
-                "schemaVersion": {"type": "integer", "example": 2},
+                "schemaVersion": {"type": "integer", "example": 3},
                 "normalForm": {"type": "string", "example": "BCNF"},
                 "error": {"type": "string"},
             },
@@ -754,6 +794,61 @@ def schemas():
                 "peerAverage": {"type": "integer"},
                 "currentUser": {"oneOf": [ref("LeaderboardEntry"), {"type": "null"}]},
                 "entries": {"type": "array", "items": ref("LeaderboardEntry")},
+            },
+        },
+        "EmailAnalysisRequest": {
+            "type": "object",
+            "required": ["gmailAccessToken"],
+            "properties": {
+                "gmailAccessToken": {
+                    "type": "string",
+                    "writeOnly": True,
+                    "maxLength": 4096,
+                    "description": "Short-lived Google OAuth access token with gmail.readonly scope. Never persisted.",
+                },
+                "days": {"type": "integer", "minimum": 7, "maximum": 365, "default": 90},
+                "maxMessages": {"type": "integer", "minimum": 1, "maximum": 60, "default": 40},
+            },
+        },
+        "EmailSignal": {
+            "type": "object",
+            "required": ["id", "subject", "category", "confidence", "receivedAt", "summary", "nextAction"],
+            "properties": {
+                "id": {"type": "string", "description": "One-way per-user message hash."},
+                "subject": {"type": "string"},
+                "senderName": {"type": "string"},
+                "senderEmail": {"type": "string", "format": "email"},
+                "company": {"type": "string"},
+                "category": {
+                    "type": "string",
+                    "enum": ["offer", "interview", "online_assessment", "application_update", "rejection", "recruiter_outreach", "other"],
+                },
+                "confidence": {"type": "number", "minimum": 0, "maximum": 1},
+                "receivedAt": {"type": "string", "format": "date-time"},
+                "summary": {"type": "string"},
+                "nextAction": {"type": "string"},
+                "deadline": {"type": "string", "format": "date"},
+                "isUnread": {"type": "boolean"},
+            },
+        },
+        "EmailAnalysisSummary": {
+            "type": "object",
+            "required": ["scannedCount", "relevantCount", "aiStatus"],
+            "properties": {
+                "lookbackDays": {"type": "integer"},
+                "scannedCount": {"type": "integer"},
+                "relevantCount": {"type": "integer"},
+                "aiStatus": {"type": "string", "enum": ["idle", "ready", "fallback", "not_configured"]},
+                "model": {"type": "string"},
+                "analyzedAt": {"type": "string", "format": "date-time"},
+            },
+        },
+        "EmailAnalysisResponse": {
+            "type": "object",
+            "required": ["items", "summary"],
+            "properties": {
+                "items": {"type": "array", "items": ref("EmailSignal")},
+                "summary": ref("EmailAnalysisSummary"),
             },
         },
         "DocumentUploadResponse": {

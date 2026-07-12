@@ -9,6 +9,7 @@ import {
   FiChevronsLeft as ChevronsLeft,
   FiChevronsRight as ChevronsRight,
   FiMenu as Menu,
+  FiX as X,
   FiEdit2 as Pencil,
   FiRefreshCcw as RefreshCcw,
   FiSearch as Search,
@@ -58,6 +59,7 @@ import { ContactsView } from "./features/contacts/ContactsView.jsx";
 import { CalendarView } from "./features/calendar/CalendarView.jsx";
 import { TasksView } from "./features/tasks/TasksView.jsx";
 import { DocumentsView } from "./features/documents/DocumentsView.jsx";
+import { EmailIntelligenceView } from "./features/email/EmailIntelligenceView.jsx";
 import { SettingsView } from "./features/settings/SettingsView.jsx";
 import { NotificationCenter } from "./components/NotificationCenter.jsx";
 import { classNames, getInitials, IconButton } from "./components/ui.jsx";
@@ -212,6 +214,25 @@ export function App() {
       // The layout still works when private browsers block local storage.
     }
   }, [sidebarCollapsed]);
+
+  useEffect(() => {
+    if (!mobileNavOpen) return undefined;
+    const previousOverflow = document.body.style.overflow;
+    const closeOnEscape = (event) => {
+      if (event.key === "Escape") setMobileNavOpen(false);
+    };
+    const closeOnDesktop = () => {
+      if (window.innerWidth > 980) setMobileNavOpen(false);
+    };
+    document.body.style.overflow = "hidden";
+    window.addEventListener("keydown", closeOnEscape);
+    window.addEventListener("resize", closeOnDesktop);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener("keydown", closeOnEscape);
+      window.removeEventListener("resize", closeOnDesktop);
+    };
+  }, [mobileNavOpen]);
 
   const filteredJobs = useMemo(() => {
     const query = search.trim().toLowerCase();
@@ -747,6 +768,20 @@ export function App() {
         />
       );
     }
+    if (activeView === "Email") {
+      return (
+        <EmailIntelligenceView
+          authToken={authToken}
+          jobs={jobs}
+          onCreateTask={addTask}
+          onSelectJob={(id) => {
+            setSelectedId(id);
+            setActiveView("Pipeline");
+          }}
+          onToast={setToast}
+        />
+      );
+    }
     if (activeView === "Documents") {
       return (
         <DocumentsView
@@ -815,6 +850,14 @@ export function App() {
 
   return (
     <div className={classNames("app-shell", sidebarCollapsed && "is-sidebar-collapsed")} data-active-view={activeView.toLowerCase()}>
+      {mobileNavOpen && (
+        <button
+          className="mobile-nav-backdrop"
+          type="button"
+          aria-label="Close navigation"
+          onClick={() => setMobileNavOpen(false)}
+        />
+      )}
       <aside className={classNames("sidebar", mobileNavOpen && "is-open")}>
         <div className="sidebar-brand-row">
           <div className="brand-lockup">
@@ -830,6 +873,9 @@ export function App() {
             onClick={() => setSidebarCollapsed((collapsed) => !collapsed)}
           >
             {sidebarCollapsed ? <ChevronsRight size={16} /> : <ChevronsLeft size={16} />}
+          </IconButton>
+          <IconButton label="Close navigation" className="mobile-nav-close" onClick={() => setMobileNavOpen(false)}>
+            <X size={18} />
           </IconButton>
         </div>
 
@@ -868,8 +914,13 @@ export function App() {
 
       <div className="workspace">
         <header className="topbar">
-          <IconButton label="Open navigation" className="mobile-menu" onClick={() => setMobileNavOpen((open) => !open)}>
-            <Menu size={20} />
+          <IconButton
+            label={mobileNavOpen ? "Close navigation" : "Open navigation"}
+            className="mobile-menu"
+            aria-expanded={mobileNavOpen}
+            onClick={() => setMobileNavOpen((open) => !open)}
+          >
+            {mobileNavOpen ? <X size={20} /> : <Menu size={20} />}
           </IconButton>
           <div className="title-block">
             <h1>{workspaceTitle}</h1>
