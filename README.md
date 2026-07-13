@@ -63,4 +63,4 @@ S3_SECRET_ACCESS_KEY
 S3_ADDRESSING_STYLE=path
 ```
 
-For Gmail intelligence, enable the Gmail API for the Google OAuth project, add the `gmail.readonly` scope to the consent screen, and configure `GEMINI_API_KEY` as a Wasmer secret. Gmail access tokens and full message bodies are never stored.
+For Gmail intelligence, enable the Gmail API for the Google OAuth project, add the `gmail.readonly` scope to the consent screen, and configure `GEMINI_API_KEY` as a Wasmer secret. Gmail access tokens and full message bodies are never stored. Gmail authorization errors include a stable code so the UI can distinguish a disabled API, a missing scope, an expired token, a Workspace domain policy, and a temporary quota limit.

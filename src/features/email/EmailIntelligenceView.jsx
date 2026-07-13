@@ -17,6 +17,51 @@ import { apiRequest, GOOGLE_CLIENT_ID } from "../../lib/auth.js";
 
 const GMAIL_READONLY_SCOPE = "https://www.googleapis.com/auth/gmail.readonly";
 
+const errorCopy = {
+  gmail_api_disabled: {
+    title: "Enable the Gmail API",
+    action: "Open Google Cloud",
+  },
+  gmail_scope_missing: {
+    title: "Allow read-only Gmail access",
+    action: "Grant permission",
+  },
+  gmail_access_denied: {
+    title: "Gmail permission was not granted",
+    action: "Choose account",
+  },
+  gmail_permission_denied: {
+    title: "Gmail access was rejected",
+    action: "Reconnect",
+  },
+  gmail_auth_expired: {
+    title: "Gmail access expired",
+    action: "Reconnect",
+  },
+  gmail_domain_policy: {
+    title: "This account blocks Gmail access",
+    action: "Choose another account",
+  },
+  gmail_quota: {
+    title: "Gmail is temporarily rate limited",
+    action: "Try again",
+  },
+};
+
+function createGmailError(message, code) {
+  const error = new Error(message);
+  error.code = code;
+  return error;
+}
+
+function normalizeEmailError(error) {
+  return {
+    message: error instanceof Error ? error.message : "Inbox analysis failed.",
+    code: error?.code || "email_analysis_failed",
+    actionUrl: error?.actionUrl || "",
+  };
+}
+
 const categoryLabels = {
   offer: "Offer",
   interview: "Interview",
@@ -47,7 +92,7 @@ function loadGoogleIdentityScript() {
   });
 }
 
-async function requestGmailAccessToken(tokenClientRef) {
+async function requestGmailAccessToken(tokenClientRef, { forceConsent = false } = {}) {
   await loadGoogleIdentityScript();
   return new Promise((resolve, reject) => {
     try {
@@ -56,15 +101,42 @@ async function requestGmailAccessToken(tokenClientRef) {
         scope: GMAIL_READONLY_SCOPE,
         include_granted_scopes: true,
         callback: (response) => {
-          if (response?.access_token) resolve(response.access_token);
-          else reject(new Error(response?.error_description || "Gmail permission was not granted."));
+          if (response?.error) {
+            const code = response.error === "access_denied" ? "gmail_access_denied" : "gmail_scope_missing";
+            reject(createGmailError(response.error_description || "Gmail permission was not granted.", code));
+            return;
+          }
+          if (!response?.access_token) {
+            reject(createGmailError("Google did not return Gmail access.", "gmail_scope_missing"));
+            return;
+          }
+          const hasReadScope = typeof window.google.accounts.oauth2.hasGrantedAllScopes === "function"
+            ? window.google.accounts.oauth2.hasGrantedAllScopes(response, GMAIL_READONLY_SCOPE)
+            : String(response.scope || "").split(/\s+/).includes(GMAIL_READONLY_SCOPE);
+          if (!hasReadScope) {
+            reject(createGmailError(
+              "Read-only Gmail access was not selected. Reconnect and approve the Gmail permission.",
+              "gmail_scope_missing",
+            ));
+            return;
+          }
+          resolve(response.access_token);
         },
-        error_callback: () => reject(new Error("Google authorization was closed or blocked.")),
+        error_callback: (oauthError) => {
+          const message = oauthError?.type === "popup_failed_to_open"
+            ? "Your browser blocked the Google authorization window. Allow pop-ups and try again."
+            : "Google authorization was closed before Gmail access was granted.";
+          reject(createGmailError(message, "gmail_access_denied"));
+        },
       });
       tokenClientRef.current = client;
-      client.requestAccessToken({ prompt: "select_account" });
+      client.requestAccessToken({
+        scope: GMAIL_READONLY_SCOPE,
+        include_granted_scopes: true,
+        prompt: forceConsent ? "consent select_account" : "select_account",
+      });
     } catch {
-      reject(new Error("Google authorization could not start."));
+      reject(createGmailError("Google authorization could not start.", "gmail_access_denied"));
     }
   });
 }
@@ -87,7 +159,7 @@ export function EmailIntelligenceView({ authToken, jobs, onCreateTask, onSelectJ
   const [summary, setSummary] = useState({ scannedCount: 0, relevantCount: 0, analyzedAt: "", aiStatus: "idle" });
   const [days, setDays] = useState("90");
   const [status, setStatus] = useState("loading");
-  const [error, setError] = useState("");
+  const [error, setError] = useState(null);
   const tokenClientRef = useRef(null);
 
   useEffect(() => {
@@ -101,7 +173,7 @@ export function EmailIntelligenceView({ authToken, jobs, onCreateTask, onSelectJ
       })
       .catch((requestError) => {
         if (cancelled) return;
-        setError(requestError.message);
+        setError(normalizeEmailError(requestError));
         setStatus("error");
       });
     return () => {
@@ -117,9 +189,15 @@ export function EmailIntelligenceView({ authToken, jobs, onCreateTask, onSelectJ
 
   async function analyzeInbox() {
     setStatus("authorizing");
-    setError("");
+    const forceConsent = [
+      "gmail_scope_missing",
+      "gmail_access_denied",
+      "gmail_permission_denied",
+      "gmail_auth_expired",
+    ].includes(error?.code);
+    setError(null);
     try {
-      const gmailAccessToken = await requestGmailAccessToken(tokenClientRef);
+      const gmailAccessToken = await requestGmailAccessToken(tokenClientRef, { forceConsent });
       setStatus("analyzing");
       const data = await apiRequest("/api/email/analyze", {
         method: "POST",
@@ -131,7 +209,7 @@ export function EmailIntelligenceView({ authToken, jobs, onCreateTask, onSelectJ
       setStatus("ready");
       onToast?.(`Analyzed ${data.summary?.scannedCount || 0} Gmail messages`);
     } catch (requestError) {
-      setError(requestError instanceof Error ? requestError.message : "Inbox analysis failed.");
+      setError(normalizeEmailError(requestError));
       setStatus("error");
     }
   }
@@ -180,8 +258,17 @@ export function EmailIntelligenceView({ authToken, jobs, onCreateTask, onSelectJ
       {error && (
         <div className="email-error" role="alert">
           <AlertCircle size={17} />
-          <span>{error}</span>
-          <button type="button" onClick={analyzeInbox}>Try again</button>
+          <div>
+            <strong>{errorCopy[error.code]?.title || "Inbox analysis could not finish"}</strong>
+            <span>{error.message}</span>
+          </div>
+          {error.actionUrl ? (
+            <a href={error.actionUrl} target="_blank" rel="noreferrer">
+              {errorCopy[error.code]?.action || "Open setup"} <ExternalLink size={13} />
+            </a>
+          ) : (
+            <button type="button" onClick={analyzeInbox}>{errorCopy[error.code]?.action || "Try again"}</button>
+          )}
         </div>
       )}
 

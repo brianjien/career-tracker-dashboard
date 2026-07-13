@@ -48,6 +48,13 @@ GOOGLE_CLIENT_ID = os.environ.get(
     "GOOGLE_CLIENT_ID",
     os.environ.get("VITE_GOOGLE_CLIENT_ID", "48292852686-95nqueviim5bflqo4upq3bta29bkamej.apps.googleusercontent.com"),
 )
+GOOGLE_CLOUD_PROJECT_NUMBER = GOOGLE_CLIENT_ID.split("-", 1)[0] if re.match(r"^\d+-", GOOGLE_CLIENT_ID) else ""
+GMAIL_API_SETUP_URL = (
+    "https://console.cloud.google.com/apis/library/gmail.googleapis.com"
+    f"?project={quote(GOOGLE_CLOUD_PROJECT_NUMBER)}"
+    if GOOGLE_CLOUD_PROJECT_NUMBER
+    else "https://console.cloud.google.com/apis/library/gmail.googleapis.com"
+)
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "").strip()
 GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-3.5-flash").strip() or "gemini-3.5-flash"
 
@@ -77,6 +84,15 @@ ALLOWED_EMAIL_CATEGORIES = {
     "recruiter_outreach",
     "other",
 }
+
+
+class GmailAccessError(ValueError):
+    def __init__(self, message, code="gmail_permission_denied", action_url=""):
+        super().__init__(message)
+        self.code = code
+        self.action_url = action_url
+
+
 SAFE_PROFILE_AVATAR_PREFIXES = ("/assets/profile-presets/",)
 SAFE_DATA_MIME_TYPES = {
     "data:application/pdf",
@@ -2791,6 +2807,62 @@ def gmail_message_metadata(message):
     }
 
 
+def gmail_access_error(response):
+    status_code = int(getattr(response, "status_code", 0) or 0)
+    try:
+        payload = response.json() or {}
+    except (TypeError, ValueError, requests.JSONDecodeError):
+        payload = {}
+    error_payload = payload.get("error") if isinstance(payload, dict) else {}
+    if not isinstance(error_payload, dict):
+        error_payload = {}
+
+    reasons = set()
+    for item in error_payload.get("errors") or []:
+        if isinstance(item, dict) and item.get("reason"):
+            reasons.add(str(item["reason"]).strip().lower())
+    for item in error_payload.get("details") or []:
+        if isinstance(item, dict) and item.get("reason"):
+            reasons.add(str(item["reason"]).strip().lower())
+    if error_payload.get("status"):
+        reasons.add(str(error_payload["status"]).strip().lower())
+
+    message = clean_text(error_payload.get("message"), 500).lower()
+    reason_text = " ".join(sorted(reasons))
+    combined = f"{reason_text} {message}"
+
+    if status_code == 401 or "autherror" in combined or "invalid credentials" in combined:
+        return GmailAccessError(
+            "Your short-lived Gmail access expired. Reconnect Gmail and run the scan again.",
+            "gmail_auth_expired",
+        )
+    if any(value in combined for value in ("service_disabled", "accessnotconfigured", "has not been used", "api is disabled")):
+        return GmailAccessError(
+            "Gmail API is disabled for this Google Cloud project. Enable it once, wait a minute, then retry.",
+            "gmail_api_disabled",
+            GMAIL_API_SETUP_URL,
+        )
+    if any(value in combined for value in ("insufficientpermissions", "insufficient_permissions", "access_token_scope_insufficient", "insufficient authentication scopes")):
+        return GmailAccessError(
+            "The selected Google account did not grant read-only Gmail access. Reconnect and approve the Gmail permission.",
+            "gmail_scope_missing",
+        )
+    if "domainpolicy" in combined or "domain policy" in combined:
+        return GmailAccessError(
+            "This Google Workspace administrator blocks Gmail API access. Choose a personal Gmail account or ask the administrator to allow it.",
+            "gmail_domain_policy",
+        )
+    if status_code == 429 or any(value in combined for value in ("ratelimit", "rate_limit", "quota", "dailylimit")):
+        return GmailAccessError(
+            "Gmail temporarily limited this scan. Wait a moment and try again.",
+            "gmail_quota",
+        )
+    return GmailAccessError(
+        "Gmail rejected this account. Reconnect and choose an account that allows read-only Gmail access.",
+        "gmail_permission_denied",
+    )
+
+
 def fetch_gmail_candidates(access_token, days=90, max_messages=40):
     token = str(access_token or "").strip()
     if not token or len(token) > 4_096:
@@ -2806,8 +2878,8 @@ def fetch_gmail_candidates(access_token, days=90, max_messages=40):
         )
     except requests.RequestException as exc:
         raise ValueError("Gmail could not be reached. Please try again.") from exc
-    if response.status_code in {401, 403}:
-        raise ValueError("Gmail access was denied. Enable the Gmail API and grant read-only permission.")
+    if response.status_code in {401, 403, 429}:
+        raise gmail_access_error(response)
     if not response.ok:
         raise ValueError("Gmail could not return messages right now.")
     message_refs = (response.json() or {}).get("messages") or []
@@ -2827,6 +2899,8 @@ def fetch_gmail_candidates(access_token, days=90, max_messages=40):
             ],
             timeout=10,
         )
+        if detail.status_code in {401, 403, 429}:
+            raise gmail_access_error(detail)
         if not detail.ok:
             return None
         return gmail_message_metadata(detail.json() or {})
@@ -3510,6 +3584,12 @@ def email_analyze():
         signals, ai_status = build_email_signals(user["id"], messages)
         save_email_signals(user["id"], signals, days, len(messages), ai_status)
         return json_response(get_email_analysis(user["id"]))
+    except GmailAccessError as exc:
+        print(f"gmail_access_failed: {exc.code}", file=sys.stderr, flush=True)
+        payload = {"error": clean_text(str(exc), 240, "Gmail access could not be verified."), "code": exc.code}
+        if exc.action_url:
+            payload["actionUrl"] = exc.action_url
+        return json_response(payload, 400)
     except ValueError as exc:
         return json_response({"error": clean_text(str(exc), 240, "Inbox analysis could not finish.")}, 400)
     except Exception as exc:
