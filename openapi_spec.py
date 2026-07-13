@@ -452,7 +452,11 @@ def schemas():
         "Error": {
             "type": "object",
             "required": ["error"],
-            "properties": {"error": {"type": "string"}},
+            "properties": {
+                "error": {"type": "string"},
+                "code": {"type": "string", "description": "Stable machine-readable error code when available."},
+                "actionUrl": {"type": "string", "format": "uri", "description": "Optional remediation URL."},
+            },
         },
         "OkResponse": {
             "type": "object",

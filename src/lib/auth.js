@@ -78,7 +78,11 @@ export async function apiRequest(path, { method = "GET", body, token = readAuthT
   const payload = contentType.includes("application/json") ? await response.json() : {};
 
   if (!response.ok) {
-    throw new Error(payload.error || `Request failed with ${response.status}`);
+    const error = new Error(payload.error || `Request failed with ${response.status}`);
+    error.code = payload.code || "request_failed";
+    error.actionUrl = payload.actionUrl || "";
+    error.status = response.status;
+    throw error;
   }
   return payload;
 }

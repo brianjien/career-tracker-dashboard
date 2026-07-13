@@ -93,6 +93,8 @@ http://localhost:8794
 
 The Email view requests `https://www.googleapis.com/auth/gmail.readonly` only when the user chooses **Connect Gmail**. Enable the Gmail API in the same Google Cloud project and add that scope to the OAuth consent screen.
 
+If the Email view reports `gmail_api_disabled`, use its Google Cloud action to enable Gmail API for the OAuth client project. If it reports `gmail_scope_missing`, reconnect and explicitly approve read-only Gmail access; the app verifies the granted scope before sending the short-lived token to the backend.
+
 Gemini classification runs on the backend. Store the key as a Wasmer secret:
 
 ```bash

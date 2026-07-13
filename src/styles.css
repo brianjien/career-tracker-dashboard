@@ -8677,16 +8677,35 @@ body {
   font-size: 12px;
 }
 
-.email-error span {
+.email-error > div {
   min-width: 0;
   flex: 1;
+  display: grid;
+  gap: 2px;
 }
 
-.email-error button {
+.email-error strong {
+  color: #702525;
+  font-size: 12px;
+}
+
+.email-error span {
+  color: #8b3030;
+  line-height: 1.4;
+}
+
+.email-error button,
+.email-error a {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  flex: 0 0 auto;
   border: 0;
   background: transparent;
   color: inherit;
   font-weight: 700;
+  text-decoration: none;
 }
 
 .email-metrics {
@@ -9016,6 +9035,22 @@ body {
 
   .email-metrics article:nth-child(-n + 2) {
     border-bottom: 1px solid var(--line);
+  }
+
+  .email-error {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .email-error > svg {
+    margin-top: 2px;
+  }
+
+  .email-error button,
+  .email-error a {
+    width: 100%;
+    min-height: 34px;
+    border-top: 1px solid #ecd3d3;
   }
 
   .email-results-bar,

@@ -1,10 +1,16 @@
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 import app
 
 
 class EmailAnalysisTests(unittest.TestCase):
+    def gmail_response(self, status_code, error):
+        response = Mock()
+        response.status_code = status_code
+        response.json.return_value = {"error": error}
+        return response
+
     def test_heuristic_classifies_common_recruiting_messages(self):
         self.assertEqual(
             app.email_category_for_text("Please complete your HackerRank coding assessment"),
@@ -64,6 +70,72 @@ class EmailAnalysisTests(unittest.TestCase):
         self.assertEqual(result["email-0"]["category"], "interview")
         self.assertIn("prepare", result["email-0"]["nextAction"].lower())
         self.assertNotIn("choose an interview time", result["email-0"]["summary"].lower())
+
+    def test_disabled_gmail_api_returns_setup_action(self):
+        response = self.gmail_response(403, {
+            "message": "Gmail API has not been used in project 123 before or it is disabled.",
+            "status": "PERMISSION_DENIED",
+            "details": [{"reason": "SERVICE_DISABLED"}],
+        })
+
+        error = app.gmail_access_error(response)
+
+        self.assertEqual(error.code, "gmail_api_disabled")
+        self.assertIn("gmail.googleapis.com", error.action_url)
+
+    def test_missing_gmail_scope_is_distinct_from_disabled_api(self):
+        response = self.gmail_response(403, {
+            "message": "Request had insufficient authentication scopes.",
+            "details": [{"reason": "ACCESS_TOKEN_SCOPE_INSUFFICIENT"}],
+        })
+
+        error = app.gmail_access_error(response)
+
+        self.assertEqual(error.code, "gmail_scope_missing")
+        self.assertFalse(error.action_url)
+
+    def test_expired_gmail_token_prompts_reconnection(self):
+        response = self.gmail_response(401, {
+            "message": "Invalid Credentials",
+            "errors": [{"reason": "authError"}],
+        })
+
+        error = app.gmail_access_error(response)
+
+        self.assertEqual(error.code, "gmail_auth_expired")
+
+    def test_workspace_policy_error_suggests_another_account(self):
+        response = self.gmail_response(403, {
+            "message": "The domain administrators have disabled Gmail apps.",
+            "errors": [{"reason": "domainPolicy"}],
+        })
+
+        error = app.gmail_access_error(response)
+
+        self.assertEqual(error.code, "gmail_domain_policy")
+
+    @patch.object(app, "require_user", return_value=({"id": "user-1"}, None))
+    @patch.object(
+        app,
+        "fetch_gmail_candidates",
+        side_effect=app.GmailAccessError(
+            "Gmail API is disabled for this Google Cloud project.",
+            "gmail_api_disabled",
+            "https://console.cloud.google.com/apis/library/gmail.googleapis.com?project=123",
+        ),
+    )
+    def test_analyze_endpoint_preserves_remediation_details(self, _fetch, _user):
+        with app.app.test_request_context(
+            "/api/email/analyze",
+            method="POST",
+            json={"gmailAccessToken": "short-lived-token", "days": 30},
+        ):
+            response = app.email_analyze()
+
+        payload = response.get_json()
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(payload["code"], "gmail_api_disabled")
+        self.assertIn("gmail.googleapis.com", payload["actionUrl"])
 
 
 if __name__ == "__main__":
